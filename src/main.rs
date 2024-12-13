@@ -7,6 +7,10 @@ use log::{info, debug, trace};
 use clap::Parser;
 use env_logger::{Builder, Env};
 
+use lazy_static::lazy_static;
+use std::process::Command;
+use std::sync::Mutex;
+
 mod fan_controller;
 use fan_controller::FanController;
 
@@ -64,11 +68,21 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     fan_controller.fan_off()?;
 
+    let mut iteration_count = 0;
+    let mut ip_address = get_local_ip();
+
     loop {
         sys.refresh_cpu_usage();
         sys.refresh_memory();
         
-        let ip_address = get_local_ip();
+        // println!("Iteration: {}", iteration_count);
+        if iteration_count % 5 == 0 {
+            // println!("Retrieving IP address");
+            ip_address = get_local_ip();
+        }
+        // let ip_address = get_local_ip();
+
+
         let temp = get_cpu_temperature();
 
         let temp_str = format!("{:.1}", temp);
@@ -91,8 +105,11 @@ fn main() -> Result<(), Box<dyn Error>> {
             disk_usage = format!("{:.1}", get_disk_usage());
         }
 
+        // println!("Updating display");
         poe_disp.update(&ip_address, cpu_usage, temp_str, ram_usage, &disk_usage).unwrap();
         thread::sleep(Duration::from_secs(1));
+        
+        iteration_count += 1;
     }
 }
 
@@ -123,9 +140,57 @@ fn get_disk_usage() -> f64 {
     }
 }
 
-fn get_local_ip() -> String {
-    match machine_ip::get() {
-        Some(ip) => ip.to_string(),
-        None => "No IP".to_string(),
+lazy_static! {
+    static ref IP_ADDRESSES: Mutex<Vec<String>> = Mutex::new(Vec::new());
+    static ref CURRENT_INDEX: Mutex<usize> = Mutex::new(0);
+}
+
+fn collect_interface_ips() -> Vec<String> {
+    let output = Command::new("ip")
+        .args(&["addr"])
+        .output()
+        .expect("Failed to execute ip command");
+
+    let output_str = String::from_utf8_lossy(&output.stdout);
+    let mut ips = Vec::new();
+    let mut current_interface = String::new();
+
+    for line in output_str.lines() {
+        if line.starts_with(char::is_numeric) {
+            if let Some(interface) = line.split(": ").nth(1)
+                .map(|s| s.split(' ').next().unwrap()
+                .trim_end_matches(':')
+                .split('@').next().unwrap()) {
+                current_interface = interface.to_string();
+            }
+        } else if line.contains("inet ") && current_interface.starts_with("eth0") {
+            if let Some(ip) = line
+                .split_whitespace()
+                .find(|s| s.contains("/"))
+                .map(|s| s.split('/').next().unwrap().to_string())
+            {
+                ips.push(format!("{}: {}", current_interface, ip));
+            }
+        }
     }
+    ips
+}
+
+fn get_local_ip() -> String {
+    let mut addresses = IP_ADDRESSES.lock().unwrap();
+    let mut index = CURRENT_INDEX.lock().unwrap();
+
+    if addresses.is_empty() {
+        *addresses = collect_interface_ips();
+        if addresses.is_empty() {
+            return "No IP".to_string();
+        }
+    }
+
+    let current_ip = addresses[*index].clone();
+    // println!("Current IP: {}", current_ip); // Debug print
+    *index = (*index + 1) % addresses.len();
+    // println!("Next index: {}", *index); // Debug print
+
+    current_ip
 }
