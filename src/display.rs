@@ -33,15 +33,17 @@ impl PoeDisplay {
         let y_offset = 7;
         let display_width = 128;
         let char_width: i32 = 8;
+        let ip_char_width: i32 = 5;
         let x_margin = Point::new(2, 0).x_axis();
         let y_margin = Point::new(0, 1).y_axis();
     
         disp.clear(BinaryColor::Off)?;
     
         // top center: ip address
-        let ip_width = ip_address.len() as i32 * char_width;
+        let ip_width = ip_address.len() as i32 * ip_char_width;
         let ip_x_position = (display_width - ip_width) / 2;
-        Text::new(ip_address, Point::new(ip_x_position, y_offset), PCSENIOR8_STYLE).draw(disp)?;
+        // Text::new(ip_address, Point::new(ip_x_position, y_offset), PCSENIOR8_STYLE).draw(disp)?;
+        Text::new(ip_address, Point::new(ip_x_position, y_offset), FONT_5X8).draw(disp)?;
     
         // middle left: cpu usage
         let cpu_width = cpu_usage.len() as i32 * char_width;
