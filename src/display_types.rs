@@ -6,16 +6,21 @@ use embedded_graphics::{
     pixelcolor::BinaryColor,
     prelude::*
 };
-use profont::PROFONT_12_POINT;
+use profont::{PROFONT_12_POINT, PROFONT_7_POINT, PROFONT_9_POINT};
 
 
 pub type Display = Ssd1306<I2CInterface<I2cdev>, DisplaySize128x32, BufferedGraphicsMode<DisplaySize128x32>>;
 
 
 pub const PROFONT12: MonoTextStyle<'_, BinaryColor> = MonoTextStyleBuilder::new()
-    .font(&PROFONT_12_POINT)
-    .text_color(BinaryColor::On)
-    .build();
+.font(&PROFONT_12_POINT)
+.text_color(BinaryColor::On)
+.build();
+
+pub const PROFONT9: MonoTextStyle<'_, BinaryColor> = MonoTextStyleBuilder::new()
+.font(&PROFONT_9_POINT)
+.text_color(BinaryColor::On)
+.build();
 
 pub const FONT_6X12: MonoTextStyle<'_, BinaryColor> = MonoTextStyleBuilder::new()
     .font(&ascii::FONT_6X12)

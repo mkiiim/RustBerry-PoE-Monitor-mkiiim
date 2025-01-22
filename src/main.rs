@@ -27,6 +27,9 @@ struct Args {
 
     #[clap(long, default_value_t = 50.0)]
     temp_off: f32,
+
+    #[clap(long, default_value = "landscape")]
+    display: String,
 }
 
 fn main() -> Result<(), Box<dyn Error>> {
@@ -42,10 +45,13 @@ fn main() -> Result<(), Box<dyn Error>> {
     debug!("Target Family:           {}", std::env::consts::FAMILY);
     debug!("Target Architecture:     {}", std::env::consts::ARCH);
 
-    let mut poe_disp = PoeDisplay::new()?;
+    let args = Args::parse();
+    let display_orientation = args.display.clone();
+    debug!("Display orientation: {}", display_orientation);
+
+    let mut poe_disp = PoeDisplay::new(&args.display)?;
     info!("Display initialized");
 
-    let args = Args::parse();
     let mut fan_controller = FanController::new(args.temp_on, args.temp_off)?;
     info!("Fan controller initialized. temp-on: {}, temp-off: {}", fan_controller.temp_on, fan_controller.temp_off);
 
@@ -69,22 +75,17 @@ fn main() -> Result<(), Box<dyn Error>> {
     fan_controller.fan_off()?;
 
     let mut iteration_count = 0;
-    let mut ip_address = get_local_ip();
+    let mut ip_info = get_local_ip();
 
     loop {
         sys.refresh_cpu_usage();
         sys.refresh_memory();
         
-        // println!("Iteration: {}", iteration_count);
         if iteration_count % 5 == 0 {
-            // println!("Retrieving IP address");
-            ip_address = get_local_ip();
+            ip_info = get_local_ip();
         }
-        // let ip_address = get_local_ip();
-
 
         let temp = get_cpu_temperature();
-
         let temp_str = format!("{:.1}", temp);
         let cpu_usage = format!("{:.1}", sys.global_cpu_info().cpu_usage());
         let ram_usage = format!("{:.1}", get_ram_usage(&sys));
@@ -105,8 +106,18 @@ fn main() -> Result<(), Box<dyn Error>> {
             disk_usage = format!("{:.1}", get_disk_usage());
         }
 
-        // println!("Updating display");
-        poe_disp.update(&ip_address, cpu_usage, temp_str, ram_usage, &disk_usage).unwrap();
+        let (interface_phys, interface_numvlan) = split_interface(&ip_info.0);
+
+        poe_disp.update_display(
+            &ip_info.1,
+            &ip_info.0,
+            &interface_phys,
+            &interface_numvlan,
+            ip_info.2,
+            cpu_usage, temp_str,
+            ram_usage, &disk_usage,
+            &display_orientation
+        ).unwrap();
         thread::sleep(Duration::from_secs(1));
         
         iteration_count += 1;
@@ -141,11 +152,11 @@ fn get_disk_usage() -> f64 {
 }
 
 lazy_static! {
-    static ref IP_ADDRESSES: Mutex<Vec<String>> = Mutex::new(Vec::new());
+    static ref IP_ADDRESSES: Mutex<Vec<(String, String, [u8; 4])>> = Mutex::new(Vec::new());
     static ref CURRENT_INDEX: Mutex<usize> = Mutex::new(0);
 }
 
-fn collect_interface_ips() -> Vec<String> {
+fn collect_interface_ips() -> Vec<(String, String, [u8; 4])> {
     let output = Command::new("ip")
         .args(&["addr"])
         .output()
@@ -169,28 +180,46 @@ fn collect_interface_ips() -> Vec<String> {
                 .find(|s| s.contains("/"))
                 .map(|s| s.split('/').next().unwrap().to_string())
             {
-                ips.push(format!("{}: {}", current_interface, ip));
+                // Parse IP into [u8;4] octets
+                let octs: Vec<u8> = ip
+                    .split('.')
+                    .map(|num| num.parse().unwrap_or(0))
+                    .collect();
+                if octs.len() == 4 {
+                    ips.push((current_interface.clone(), ip, [octs[0], octs[1], octs[2], octs[3]]));
+                }
             }
         }
     }
     ips
 }
 
-fn get_local_ip() -> String {
+fn get_local_ip() -> (String, String, [u8; 4]) {
     let mut addresses = IP_ADDRESSES.lock().unwrap();
     let mut index = CURRENT_INDEX.lock().unwrap();
 
+    // If empty, collect new interface data
     if addresses.is_empty() {
         *addresses = collect_interface_ips();
         if addresses.is_empty() {
-            return "No IP".to_string();
+            // Return a dummy record with a "No IP" sentinel
+            return ("NoInterface".to_string(), "No IP".to_string(), [0,0,0,0]);
         }
     }
 
-    let current_ip = addresses[*index].clone();
-    // println!("Current IP: {}", current_ip); // Debug print
+    let (iface, ip, ip_octets) = addresses[*index].clone();
     *index = (*index + 1) % addresses.len();
-    // println!("Next index: {}", *index); // Debug print
 
-    current_ip
+    (iface, ip, ip_octets)
+}
+
+fn split_interface(interface: &str) -> (String, String) {
+    let parts: Vec<&str> = interface.split('.').collect();
+    if parts.len() == 2 {
+        let phys = parts[0].to_string();
+        let numvlan = format!("{}.{}", &phys[phys.len() - 1..], parts[1]);
+        (phys[..phys.len() - 1].to_string(), numvlan)
+    } else {
+        (interface.to_string(), String::new())
+    }
 }
