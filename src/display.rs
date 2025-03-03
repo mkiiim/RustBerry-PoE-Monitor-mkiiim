@@ -1,199 +1,250 @@
-use crate::display_types::{Display, FONT_5X8, FONT_6X12, PCSENIOR8_STYLE, PROFONT12, PROFONT9};
+use log::info;
+use crate::display_types::{DisplayConfig, Display, FONT_5X8, FONT_6X12, PCSENIOR8_STYLE, PROFONT12, PROFONT9, PositionValue};
 use linux_embedded_hal::I2cdev;
 use ssd1306::{prelude::*, I2CDisplayInterface, Ssd1306};
+use ssd1306::mode::DisplayConfig as SsdDisplayConfig;
 use display_interface::DisplayError as InterfaceDisplayError;
 use embedded_graphics::{
     pixelcolor::BinaryColor,
     prelude::*,
+    mono_font::MonoTextStyle,
     text::Text
 };
+use std::fs::File;
+use std::io::Read;
+use serde_json::from_str;
+use log::{debug, error};
 
 #[derive(Debug)]
 pub enum DisplayError {
     InvalidOrientation,
-    // Other variants...
+    IoError(std::io::Error),
+    JsonError(serde_json::Error),
+    DisplayError(display_interface::DisplayError),
+    ConfigError(String),
+}
+
+impl std::fmt::Display for DisplayError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            DisplayError::InvalidOrientation => write!(f, "Invalid orientation"),
+            DisplayError::IoError(e) => write!(f, "IO error: {}", e),
+            DisplayError::JsonError(e) => write!(f, "JSON error: {}", e),
+            DisplayError::DisplayError(e) => write!(f, "Display error: {:?}", e),
+            DisplayError::ConfigError(e) => write!(f, "Config error: {}", e),
+        }
+    }
+}
+
+impl std::error::Error for DisplayError {}
+
+impl From<std::io::Error> for DisplayError {
+    fn from(error: std::io::Error) -> Self {
+        DisplayError::IoError(error)
+    }
+}
+
+impl From<serde_json::Error> for DisplayError {
+    fn from(error: serde_json::Error) -> Self {
+        DisplayError::JsonError(error)
+    }
 }
 
 impl From<InterfaceDisplayError> for DisplayError {
-    fn from(error: InterfaceDisplayError) -> Self {
-        // Map the InterfaceDisplayError variants to your DisplayError variants
-        // For now, you can use a generic mapping
-        DisplayError::InvalidOrientation // Adjust this mapping as needed
+    fn from(_error: InterfaceDisplayError) -> Self {
+        DisplayError::DisplayError(_error)
     }
 }
 
 pub struct PoeDisplay {
-    display: Display
+    display: Display,
+    config: DisplayConfig,
 }
 
 impl PoeDisplay {
-    pub fn new(display_mode: &str) -> Result<Self, Box<dyn std::error::Error>> {
-        let i2c = I2cdev::new("/dev/i2c-1")?;
-        let display = initialize_display(i2c, display_mode)?;
-        Ok(PoeDisplay { display })
-    }
+    pub fn new(config_path: &str) -> Result<Self, Box<dyn std::error::Error>> {
+        // let i2c = I2cdev::new("/dev/i2c-1")?;
+        debug!("Initializing display with config path: {}", config_path);
+        let i2c = I2cdev::new("/dev/i2c-1").map_err(|e| {
+            error!("Failed to initialize I2C device: {}", e);
+            e
+        })?;
 
-    pub fn update_display(
-        &mut self,
-        _ip_address: &str,
-        _interface: &str,
-        interface_phys: &str,
-        interface_numvlan: &str,
-        _ip_octets: [u8; 4],
-        cpu_usage: String,
-        temp: String,
-        ram_usage: String,
-        disk_usage: &str,
-        display_orientation: &str,
-    ) -> Result<(), DisplayError> {
-        let disp = &mut self.display;
+        let display = initialize_display(i2c)?;
+        info!("Display initialized successfully");
 
-        let y_offset = 7;
-        let mut y_increment = 0;
-        let display_width = 128;
-        let char_width: i32 = 8;
-        let interface_char_width: i32 = 5;
-        let x_margin = Point::new(2, 0).x_axis();
-        let y_margin = Point::new(0, 1).y_axis();
+        // Load config at initialization
+        let mut file = File::open(config_path)?;
+        let mut json_content = String::new();
+        file.read_to_string(&mut json_content)?;
+        let config: DisplayConfig = from_str(&json_content)?;
 
-        disp.clear(BinaryColor::Off)?;
-
-        // Apply different configurations based on display_orientation
-        match display_orientation {
-            "landscape" => {
-                // top center: interface
-                let interface_width = _interface.len() as i32 * interface_char_width;
-                let interface_x_position = (display_width - interface_width) / 2;
-                Text::new(_interface, Point::new(interface_x_position, y_offset), FONT_5X8).draw(disp)?;
-
-                // middle left: cpu usage
-                let cpu_width = cpu_usage.len() as i32 * char_width;
-                let cpu_point = Point::new(34 - cpu_width, 12 + y_offset);
-                let next = Text::new(&cpu_usage, cpu_point, PCSENIOR8_STYLE).draw(disp)?;
-                let next = Text::new("%", next + y_margin, FONT_6X12).draw(disp)?;
-                Text::new("CPU", next + x_margin, FONT_5X8).draw(disp)?;
-
-                // bottom left: ram usage
-                let ram_width = ram_usage.len() as i32 * char_width;
-                let ram_point = Point::new(34 - ram_width, 23 + y_offset);
-                let next = Text::new(&ram_usage, ram_point, PCSENIOR8_STYLE).draw(disp)?;
-                let next = Text::new("%", next + y_margin, FONT_6X12).draw(disp)?;
-                Text::new("RAM", next + x_margin, FONT_5X8).draw(disp)?;
-
-                // middle right: temp
-                let temp_width = temp.len() as i32 * char_width;
-                let temp_point = Point::new(99 - temp_width, 12 + y_offset);
-                let next = Text::new(&temp, temp_point, PCSENIOR8_STYLE).draw(disp)?;
-                let next = Text::new("°", next + Point::new(0, 3), PROFONT12).draw(disp)?;
-                Text::new("C", next - Point::new(0, 2), PCSENIOR8_STYLE).draw(disp)?;
-
-                // bottom right: disk usage
-                let disk_width = disk_usage.len() as i32 * char_width;
-                let disk_point = Point::new(99 - disk_width, 23 + y_offset);
-                let next = Text::new(disk_usage, disk_point, PCSENIOR8_STYLE).draw(disp)?;
-                let next = Text::new("%", next + y_margin, FONT_6X12).draw(disp)?;
-                Text::new("DISK", next + x_margin, FONT_5X8).draw(disp)?;
+        info!("Loading config file from: {}", config_path);
+        let mut file = match File::open(config_path) {
+            Ok(f) => f,
+            Err(e) => {
+                error!("Failed to open config file {}: {}", config_path, e);
+                return Err(Box::new(DisplayError::IoError(e)));
             }
-            "portrait" => {
-                let display_width = 32; // Assuming the width is 32 for portrait mode
-                let display_height = 128; // Assuming the height is 128 for portrait mode
-                y_increment += y_offset;
-                
-                // Interface Block
-                let interface_width = interface_phys.len() as i32 * char_width;
-                let interface_x_position = display_width - interface_width;
-                Text::new(interface_phys, Point::new(interface_x_position, y_increment), PCSENIOR8_STYLE).draw(disp)?;
-                y_increment += 9;
-                
-                if interface_numvlan.len() > 0 {
-                    let interface_width = interface_numvlan.len() as i32 * char_width;
-                    let interface_x_position = display_width - interface_width;
-                    Text::new(interface_numvlan, Point::new(interface_x_position, y_increment), PCSENIOR8_STYLE).draw(disp)?;
-                    y_increment += 10;
-                } else {
-                    y_increment += 1;
-                }
-                
-                for i in 0.._ip_octets.len() {
-                    let mut octet_str = _ip_octets[i].to_string();
-                    // if i < _ip_octets.len() - 1 {
-                        octet_str.push('.');
-                        // }
-                        let octet_str_ref: &str = &octet_str;
-                        let interface_width = octet_str_ref.len() as i32 * interface_char_width;
-                        let interface_x_position = display_width - interface_width ;
-                        Text::new(octet_str_ref, Point::new(interface_x_position, y_increment ), FONT_5X8).draw(disp)?;
-                        y_increment += 8;
-                    }
-                    y_increment += 3;
-                    
-                // CPU block
-                let cpu_title = "CPU";
-                let cpu_title_width = cpu_title.len() as i32 * char_width;
-                let cpu_title_x_position = display_width - cpu_title_width;
-                let cpu_usage_width = cpu_usage.len() as i32 * interface_char_width;
-                let cpu_usage_x_position = (display_width * 3 / 4) - cpu_usage_width;
-                let cpu_temp_width = temp.len() as i32 * interface_char_width;
-                let cpu_temp_x_position = (display_width * 3 / 4) - cpu_temp_width;
-                
-                Text::new(cpu_title, Point::new(cpu_title_x_position, y_increment), PCSENIOR8_STYLE).draw(disp)?;
-                y_increment += 9;
-                let next = Text::new(&cpu_usage, Point::new (cpu_usage_x_position, y_increment), FONT_5X8).draw(disp)?;
-                Text::new("%", next + x_margin, FONT_5X8).draw(disp)?;
-                y_increment += 8;
-                let next = Text::new(&temp, Point::new(cpu_temp_x_position, y_increment), FONT_5X8).draw(disp)?;
-                Text::new("°", next + Point::new(0, 3), PROFONT9).draw(disp)?;
-                y_increment += 11;
-                
-                // RAM block
-                let ram_title = "RAM";
-                let ram_title_width = ram_title.len() as i32 * char_width;
-                let ram_title_x_position = display_width - ram_title_width;
-                let ram_width = ram_usage.len() as i32 * interface_char_width;
-                let ram_x_position = (display_width * 3 / 4) - ram_width;
-                
-                Text::new(&ram_title, Point::new(ram_title_x_position, y_increment), PCSENIOR8_STYLE).draw(disp)?;
-                y_increment += 9;
-                let next = Text::new(&ram_usage, Point::new(ram_x_position, y_increment), FONT_5X8).draw(disp)?;
-                Text::new("%", next + y_margin, FONT_5X8).draw(disp)?;
-                y_increment += 11;
-                
-                // Disk block
-                let disk_title = "DISK";
-                let disk_title_width = disk_title.len() as i32 * char_width;
-                let disk_title_x_position = display_width - disk_title_width;
-                let disk_width = disk_usage.len() as i32 * interface_char_width;
-                let disk_x_position = (display_width * 3 / 4) - disk_width;
-                
-                Text::new(disk_title, Point::new(disk_title_x_position, y_increment), PCSENIOR8_STYLE).draw(disp)?;
-                y_increment += 9;
-                let next = Text::new(&disk_usage, Point::new(disk_x_position, y_increment), FONT_5X8).draw(disp)?;
-                Text::new("%", next + y_margin, FONT_5X8).draw(disp)?;
-                y_increment += 10;
-                
-            }
-            _ => {
-                return Err(DisplayError::InvalidOrientation);
-            }
+        };
+
+        let mut json_content = String::new();
+        if let Err(e) = file.read_to_string(&mut json_content) {
+            error!("Failed to read config file: {}", e);
+            return Err(Box::new(DisplayError::IoError(e)));
         }
 
-        disp.flush()?;
+        info!("Parsing JSON config");
+        let config: DisplayConfig = match from_str(&json_content) {
+            Ok(c) => c,
+            Err(e) => {
+                error!("Failed to parse config JSON: {}", e);
+                return Err(Box::new(DisplayError::JsonError(e)));
+            }
+        };
+        info!("Config loaded successfully");
 
+
+        Ok(PoeDisplay { display, config })
+    }
+
+    // Replace the entire update_display method with this improved version
+    pub fn update_display(
+        &mut self,
+        ip_info: &(String, String, [u8; 4]),
+        ip_address: &str,
+        interface: &str,
+        interface_phys: &str,
+        interface_numvlan: &str,
+        ip_octets: &[u8; 4],
+        cpu_usage: &String,
+        cpu_temp_str: &String,
+        ram_usage: &String,
+        disk_usage: &str,
+    ) -> Result<(), DisplayError> {
+        let disp = &mut self.display;
+    
+        // Always clear the entire display at the beginning
+        disp.clear(BinaryColor::Off)?;
+        
+        // Use landscape orientation
+        let orientation = &self.config.orientations.landscape;
+        
+        // Iterate over elements
+        for element in &orientation.elements {
+            let x_position = match &element.position.x {
+                PositionValue::Text(val) => match val.as_str() {
+                    "center" => (orientation.width - element.id.len() as i32 * 8) / 2,
+                    "left" => 0,
+                    "right" => orientation.width - element.id.len() as i32 * 8,
+                    _ => 0,
+                },
+                PositionValue::Number(val) => *val,
+            };   
+    
+            let y_position = match &element.position.y {
+                PositionValue::Text(val) => match val.as_str() {
+                    "incrementing" => 0, // Could be improved, but not using this now
+                    _ => 0,
+                },
+                PositionValue::Number(val) => *val,
+            };
+    
+            // Track the current horizontal position
+            let mut current_x = x_position;
+            
+            // Draw components
+            for component in &element.components {
+                let value = match component.value.text.as_str() {
+                    "interface_phys" => interface_phys,
+                    "interface_numvlan" => interface_numvlan,
+                    "ip_info.0" => &ip_info.0,
+                    "ip_octets(0)" => &ip_octets[0].to_string(),
+                    "ip_octets(1)" => &ip_octets[1].to_string(),
+                    "ip_octets(2)" => &ip_octets[2].to_string(),
+                    "ip_octets(3)" => &ip_octets[3].to_string(),
+                    "cpu_usage" => &cpu_usage,
+                    "cpu_temp" => &cpu_temp_str,
+                    "ram_usage" => &ram_usage,
+                    "disk_usage" => &disk_usage,
+                    text => text,
+                };
+    
+                let font = match component.value.font.as_str() {
+                    "FONT_5X8" => FONT_5X8,
+                    "FONT_6X12" => FONT_6X12,
+                    "PCSENIOR8_STYLE" => PCSENIOR8_STYLE,
+                    "PROFONT12" => PROFONT12,
+                    "PROFONT9" => PROFONT9,
+                    _ => FONT_5X8,
+                };
+                
+                // Get character width for main value font
+                let char_width = get_char_width_from_text_style(&font);
+                
+                // Handle prefix if present (draw before the value)
+                if let Some(prefix) = &component.prefix {
+                    let prefix_font = match prefix.font.as_str() {
+                        "FONT_5X8" => FONT_5X8,
+                        "FONT_6X12" => FONT_6X12,
+                        "PCSENIOR8_STYLE" => PCSENIOR8_STYLE,
+                        "PROFONT12" => PROFONT12,
+                        "PROFONT9" => PROFONT9,
+                        _ => FONT_5X8,
+                    };
+                    
+                    // Get character width for prefix font
+                    let prefix_char_width = get_char_width_from_text_style(&prefix_font);
+                    
+                    Text::new(&prefix.text, Point::new(current_x, y_position), prefix_font).draw(disp)?;
+                    current_x += prefix.text.len() as i32 * prefix_char_width; // Advance with actual width
+                }
+                
+                // Draw the main value
+                Text::new(value, Point::new(current_x, y_position), font).draw(disp)?;
+                current_x += value.len() as i32 * char_width; // Advance with actual width
+                
+                // Handle suffix if present (draw after the value)
+                if let Some(suffix) = &component.suffix {
+                    let suffix_font = match suffix.font.as_str() {
+                        "FONT_5X8" => FONT_5X8,
+                        "FONT_6X12" => FONT_6X12,
+                        "PCSENIOR8_STYLE" => PCSENIOR8_STYLE,
+                        "PROFONT12" => PROFONT12,
+                        "PROFONT9" => PROFONT9,
+                        _ => FONT_5X8,
+                    };
+                    
+                    // Get character width for suffix font
+                    let suffix_char_width = get_char_width_from_text_style(&suffix_font);
+                    
+                    Text::new(&suffix.text, Point::new(current_x, y_position), suffix_font).draw(disp)?;
+                    current_x += suffix.text.len() as i32 * suffix_char_width; // Advance with actual width
+                }
+            }
+        }
+        
+        // Ensure the buffer is fully flushed to the display
+        disp.flush()?;
+        
         Ok(())
     }
+
 }
 
-fn initialize_display(i2c: I2cdev, display: &str) -> Result<Display, Box<dyn std::error::Error>> {
+fn initialize_display(i2c: I2cdev) -> Result<Display, Box<dyn std::error::Error>> {
     let interface = I2CDisplayInterface::new(i2c);
-    let rotation = match display {
-        "landscape" => DisplayRotation::Rotate0,
-        "portrait" => DisplayRotation::Rotate90,
-        _ => DisplayRotation::Rotate0, // Default to landscape
-    };
-    let mut disp = Ssd1306::new(interface, DisplaySize128x32, rotation)
+    let mut disp = Ssd1306::new(interface, DisplaySize128x32, DisplayRotation::Rotate0)
         .into_buffered_graphics_mode();
 
-    disp.init().map_err(|e| format!("Display initialization error: {:?}", e))?;
+//    disp.init().map_err(|e| format!("Display initialization error: {:?}", e))?;
+    <Ssd1306<_, _, _> as SsdDisplayConfig>::init(&mut disp)
+        .map_err(|e| format!("Display initialization error: {:?}", e))?;
     Ok(disp)
 }
 
+fn get_char_width_from_text_style<'a>(font_style: &MonoTextStyle<'a, BinaryColor>) -> i32 {
+    // Get the character width from the font's metadata
+    // This includes both the character size and any additional spacing
+    font_style.font.character_size.width as i32 + font_style.font.character_spacing as i32
+}

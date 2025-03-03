@@ -1,0 +1,19 @@
+[Unit]
+Description=RustBerry PoE Monitor
+After=network.target
+
+[Service]
+Type=simple
+Environment="RUST_LOG=warn"
+Environment="DISPLAY=:0"
+WorkingDirectory=/etc/rustberry-poe-monitor
+ExecStart=/usr/local/bin/rustberry-poe-monitor --config /etc/rustberry-poe-monitor/rustberry-poe-monitor.json
+StandardOutput=journal
+StandardError=journal
+Restart=always
+RestartSec=30
+User=pi
+Group=pi
+
+[Install]
+WantedBy=multi-user.target

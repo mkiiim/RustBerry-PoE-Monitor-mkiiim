@@ -1,0 +1,70 @@
+{
+  "orientations": {
+    "landscape": {
+      "width": 128,
+      "height": 32,
+      "elements": [
+        {
+          "id": "network_info",
+          "position": {
+            "x": 0,
+            "y": 7
+          },
+          "components": [
+            {
+              "value": {
+                "text": "ip_info.0",
+                "font": "FONT_5X8"
+              },
+              "suffix": {
+                "text": ": ",
+                "font": "FONT_5X8"
+              }
+            },
+            {
+              "value": {
+                "text": "ip_octets(0)",
+                "font": "FONT_6X12"
+              }
+            },
+            {
+              "prefix": {
+                "text": ".",
+                "font": "FONT_6X12"
+              },
+              "value": {
+                "text": "ip_octets(1)",
+                "font": "FONT_6X12"
+              }
+            },
+            {
+              "prefix": {
+                "text": ".",
+                "font": "FONT_6X12"
+              },
+              "value": {
+                "text": "ip_octets(2)",
+                "font": "FONT_6X12"
+              }
+            },
+            {
+              "prefix": {
+                "text": ".",
+                "font": "FONT_6X12"
+              },
+              "value": {
+                "text": "ip_octets(3)",
+                "font": "FONT_6X12"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    "portrait": {
+      "width": 32,
+      "height": 128,
+      "elements": []
+    }
+  }
+}

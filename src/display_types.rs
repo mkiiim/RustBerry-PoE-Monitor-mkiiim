@@ -6,11 +6,71 @@ use embedded_graphics::{
     pixelcolor::BinaryColor,
     prelude::*
 };
-use profont::{PROFONT_12_POINT, PROFONT_7_POINT, PROFONT_9_POINT};
+use profont::{PROFONT_12_POINT, PROFONT_9_POINT};
+
+use serde::Deserialize;
+
+#[derive(Deserialize)]
+pub struct DisplayConfig {
+    pub orientations: Orientations,
+}
+
+#[derive(Deserialize)]
+pub struct Orientations {
+    pub landscape: OrientationConfig,
+    pub portrait: OrientationConfig,
+}
+
+#[derive(Deserialize)]
+pub struct OrientationConfig {
+    pub width: i32,
+    pub height: i32,
+    pub elements: Vec<ElementConfig>,
+}
+
+#[derive(Deserialize)]
+pub struct ElementConfig {
+    pub id: String,
+    pub position: PositionConfig,
+    pub components: Vec<ComponentConfig>,
+}
+
+#[derive(Deserialize)]
+#[serde(untagged)]
+pub enum PositionValue {
+    Number(i32),
+    Text(String),
+}
+
+#[derive(Deserialize)]
+pub struct PositionConfig {
+    pub x: PositionValue,
+    pub y: PositionValue,
+}
+
+#[derive(Deserialize)]
+pub struct ComponentConfig {
+    pub value: ValueConfig,
+    pub prefix: Option<PrefixSuffixConfig>,
+    pub suffix: Option<PrefixSuffixConfig>,
+}
+
+#[derive(Deserialize)]
+pub struct ValueConfig {
+    pub text: String,
+    pub font: String,
+}
+
+#[derive(Deserialize)]
+pub struct PrefixSuffixConfig {
+    pub text: String,
+    pub font: String,
+}
+
+
 
 
 pub type Display = Ssd1306<I2CInterface<I2cdev>, DisplaySize128x32, BufferedGraphicsMode<DisplaySize128x32>>;
-
 
 pub const PROFONT12: MonoTextStyle<'_, BinaryColor> = MonoTextStyleBuilder::new()
 .font(&PROFONT_12_POINT)
