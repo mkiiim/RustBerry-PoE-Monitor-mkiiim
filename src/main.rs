@@ -59,8 +59,8 @@ fn main() -> Result<(), Box<dyn Error>> {
     let display_orientation = args.display.clone();
     debug!("Display orientation: {}", display_orientation);
 
-    // let mut poe_disp = PoeDisplay::new(&args.config, &args.display)?;
-    let mut poe_disp = PoeDisplay::new(&args.config)?;
+    let mut poe_disp = PoeDisplay::new(&args.config, &args.display)?;
+    // let mut poe_disp = PoeDisplay::new(&args.config)?;
     info!("Display initialized");
 
     let mut fan_controller = FanController::new(args.temp_on, args.temp_off)?;
@@ -169,6 +169,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         
         // Update the display with consistent error handling
         match poe_disp.update_display(
+            &display_orientation,
             &ip_info,
             &ip_info.1,      // IP Address e.g., 192.168.0.1
             &ip_info.0,      // Interface e.g., eth0.99

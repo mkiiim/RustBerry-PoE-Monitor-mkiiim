@@ -40,6 +40,10 @@ pub struct ElementConfig {
 pub enum PositionValue {
     Number(i32),
     Text(String),
+    Relative {
+        align: String,
+        reference: i32
+    }
 }
 
 #[derive(Deserialize)]
