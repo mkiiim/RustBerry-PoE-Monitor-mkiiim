@@ -18,6 +18,7 @@ mod display;
 use display::PoeDisplay;
 
 mod display_types;
+mod default_config;
 
 #[derive(Parser, Debug)]
 #[clap(author, version, about, long_about = None)]
@@ -28,10 +29,7 @@ struct Args {
     #[clap(long, default_value_t = 50.0)]
     temp_off: f32,
 
-    #[clap(long, default_value = "landscape")]
-    display: String,
-
-    #[arg(long, default_value = "/etc/rustberry-poe-monitor/rustberry-poe-monitor.json")]
+    #[arg(long, default_value = "/etc/rustberry-poe-monitor/portrait.json")]
     config: String,
 }
 
@@ -56,15 +54,36 @@ fn main() -> Result<(), Box<dyn Error>> {
     debug!("Target Architecture:     {}", std::env::consts::ARCH);
 
     let args = Args::parse();
-    let display_orientation = args.display.clone();
-    debug!("Display orientation: {}", display_orientation);
+    debug!("Using config file: {}", args.config);
 
-    let mut poe_disp = PoeDisplay::new(&args.config, &args.display)?;
-    // let mut poe_disp = PoeDisplay::new(&args.config)?;
-    info!("Display initialized");
+    // Initialize display with potential fallback to default config
+    let mut poe_disp = match PoeDisplay::new(&args.config) {
+        Ok(disp) => {
+            info!("Display initialized with configuration from: {}", args.config);
+            disp
+        },
+        Err(e) => {
+            error!("Failed to initialize display: {}", e);
+            // Box the error to match the return type
+            return Err(Box::new(std::io::Error::new(std::io::ErrorKind::Other, 
+                format!("Display initialization failed: {}", e))));
+        }
+    };
 
-    let mut fan_controller = FanController::new(args.temp_on, args.temp_off)?;
-    info!("Fan controller initialized. temp-on: {}, temp-off: {}", fan_controller.temp_on, fan_controller.temp_off);
+    // Initialize fan controller with graceful error handling
+    let mut fan_controller = match FanController::new(args.temp_on, args.temp_off) {
+        Ok(fc) => {
+            info!("Fan controller initialized. temp-on: {}, temp-off: {}", 
+                  fc.temp_on, fc.temp_off);
+            fc
+        },
+        Err(e) => {
+            error!("Failed to initialize fan controller: {}", e);
+            // Box the error to match the return type
+            return Err(Box::new(std::io::Error::new(std::io::ErrorKind::Other, 
+                format!("Fan controller initialization failed: {}", e))));
+        }
+    };
 
     let mut sys: System = System::new_with_specifics(
         RefreshKind::new()
@@ -83,7 +102,9 @@ fn main() -> Result<(), Box<dyn Error>> {
     let mut last_disk_update = Instant::now() - disk_update_interval;
     info!("Starting main loop");
     
-    fan_controller.fan_off()?;
+    if let Err(e) = fan_controller.fan_off() {
+        warn!("Failed to turn off fan initially: {}", e);
+    }
     
     let mut iteration_count = 0;
     let mut ip_info = get_local_ip();
@@ -99,12 +120,6 @@ fn main() -> Result<(), Box<dyn Error>> {
         // Only refresh system info every iteration
         sys.refresh_cpu_usage();
         sys.refresh_memory();
-        
-        // Only update IP info every 5 iterations (or similar interval)
-        // if iteration_count % 5 == 0 {
-        //     ip_info = get_local_ip();
-        //     info!("Updated IP info: {:?}", ip_info);
-        // }
         
         // Only update IP info every 5 iterations (or similar interval)
         if iteration_count % 5 == 0 {
@@ -145,10 +160,14 @@ fn main() -> Result<(), Box<dyn Error>> {
         
         if fan_controller.is_running {
             if cpu_temp <= fan_controller.temp_off {
-                fan_controller.fan_off()?;
+                if let Err(e) = fan_controller.fan_off() {
+                    warn!("Failed to turn off fan: {}", e);
+                }
             }
         } else if cpu_temp >= fan_controller.temp_on {
-            fan_controller.fan_on()?;
+            if let Err(e) = fan_controller.fan_on() {
+                warn!("Failed to turn on fan: {}", e);
+            }
         }
         
         // Update disk usage less frequently
@@ -169,7 +188,6 @@ fn main() -> Result<(), Box<dyn Error>> {
         
         // Update the display with consistent error handling
         match poe_disp.update_display(
-            &display_orientation,
             &ip_info,
             &ip_info.1,      // IP Address e.g., 192.168.0.1
             &ip_info.0,      // Interface e.g., eth0.99
@@ -196,12 +214,22 @@ fn main() -> Result<(), Box<dyn Error>> {
 }
 
 fn get_cpu_temperature() -> f32 {
-    let temp_contents = fs::read_to_string("/sys/class/thermal/thermal_zone0/temp").unwrap();
-    temp_contents.trim().parse::<f32>().unwrap() / 1000.0
+    match fs::read_to_string("/sys/class/thermal/thermal_zone0/temp") {
+        Ok(temp_contents) => {
+            temp_contents.trim().parse::<f32>().unwrap_or(0.0) / 1000.0
+        },
+        Err(_) => {
+            warn!("Failed to read CPU temperature, returning 0.0");
+            0.0
+        }
+    }
 }
 
 fn get_ram_usage(sys: &System) -> f64 {
     let total_memory = sys.total_memory();
+    if total_memory == 0 {
+        return 0.0;
+    }
     let used_memory = sys.used_memory();
     (used_memory as f64 / total_memory as f64) * 100.0
 }
@@ -225,10 +253,13 @@ fn get_disk_usage() -> f64 {
 fn collect_interface_ips() -> Vec<(String, String, [u8; 4])> {
     info!("Starting to collect interface IPs...");
     
-    let output = Command::new("ip")
-        .args(&["addr"])
-        .output()
-        .expect("Failed to execute ip command");
+    let output = match Command::new("ip").args(&["addr"]).output() {
+        Ok(output) => output,
+        Err(e) => {
+            error!("Failed to execute ip command: {}", e);
+            return vec![("NoInterface".to_string(), "0.0.0.0".to_string(), [0, 0, 0, 0])];
+        }
+    };
 
     let output_str = String::from_utf8_lossy(&output.stdout);
     debug!("Raw 'ip addr' output: \n{}", output_str);
@@ -277,6 +308,8 @@ fn collect_interface_ips() -> Vec<(String, String, [u8; 4])> {
     
     if ips.is_empty() {
         warn!("No interfaces and IPs were found matching criteria");
+        // Return a dummy entry so we have something to display
+        ips.push(("NoInterface".to_string(), "0.0.0.0".to_string(), [0, 0, 0, 0]));
     } else {
         info!("Successfully collected {} interface IPs: {:?}", ips.len(), ips);
     }
@@ -285,66 +318,87 @@ fn collect_interface_ips() -> Vec<(String, String, [u8; 4])> {
 }
 
 fn get_local_ip() -> (String, String, [u8; 4]) {
-    let mut addresses = IP_ADDRESSES.lock().unwrap();
-    let mut index = CURRENT_INDEX.lock().unwrap();
-    let mut last_refresh = LAST_IP_REFRESH.lock().unwrap();
-    
-    // Force a refresh of IP addresses every 5 minutes (300 seconds)
-    let refresh_interval = Duration::from_secs(300);
-    let should_refresh = addresses.is_empty() || last_refresh.elapsed() >= refresh_interval;
-
-    // Log current state
-    info!(
-        "get_local_ip called. Current addresses: {:?}, index: {}, time since last refresh: {:?}, should refresh: {}",
-        addresses, *index, last_refresh.elapsed(), should_refresh
-    );
-    
-    // Refresh if needed
-    if should_refresh {
-        info!("Refreshing IP addresses...");
-        *addresses = collect_interface_ips();
-        *last_refresh = Instant::now();
+    // Use a result pattern to handle potential errors while obtaining locks
+    let result = (|| -> Result<(String, String, [u8; 4]), Box<dyn std::error::Error>> {
+        let mut addresses = IP_ADDRESSES.lock().unwrap();
+        let mut index = CURRENT_INDEX.lock().unwrap();
+        let mut last_refresh = LAST_IP_REFRESH.lock().unwrap();
         
+        // Force a refresh of IP addresses every 5 minutes (300 seconds)
+        let refresh_interval = Duration::from_secs(300);
+        let should_refresh = addresses.is_empty() || last_refresh.elapsed() >= refresh_interval;
+
+        // Log current state
+        info!(
+            "get_local_ip called. Current addresses: {:?}, index: {}, time since last refresh: {:?}, should refresh: {}",
+            addresses, *index, last_refresh.elapsed(), should_refresh
+        );
+        
+        // Refresh if needed
+        if should_refresh {
+            info!("Refreshing IP addresses...");
+            *addresses = collect_interface_ips();
+            *last_refresh = Instant::now();
+            
+            // Reset index when we refresh
+            *index = 0;
+        }
+
+        // Safely get an address or return a default
         if addresses.is_empty() {
             warn!("No IP addresses found, returning dummy record");
-            return ("NoInterface".to_string(), "No IP".to_string(), [0, 0, 0, 0]);
+            return Ok(("NoInterface".to_string(), "0.0.0.0".to_string(), [0, 0, 0, 0]));
         }
         
-        // Reset index when we refresh
-        *index = 0;
-    }
-
-    // Safely get an address or return a default
-    if *index >= addresses.len() {
-        info!("Index {} is out of bounds, resetting to 0", *index);
-        *index = 0; // Reset if out of bounds
-    }
+        if *index >= addresses.len() {
+            info!("Index {} is out of bounds, resetting to 0", *index);
+            *index = 0; // Reset if out of bounds
+        }
+        
+        let (iface, ip, ip_octets) = addresses[*index].clone();
+        *index = (*index + 1) % addresses.len();
+        
+        info!("Returning IP info: interface={}, ip={}, octets={:?}, next index will be {}", 
+              iface, ip, ip_octets, *index);
+        Ok((iface, ip, ip_octets))
+    })();
     
-    let (iface, ip, ip_octets) = addresses[*index].clone();
-    *index = (*index + 1) % addresses.len();
-    
-    info!("Returning IP info: interface={}, ip={}, octets={:?}, next index will be {}", 
-          iface, ip, ip_octets, *index);
-    (iface, ip, ip_octets)
+    // Handle any potential errors with mutex locks
+    match result {
+        Ok(info) => info,
+        Err(e) => {
+            error!("Error in get_local_ip: {}. Returning default values.", e);
+            ("NoInterface".to_string(), "0.0.0.0".to_string(), [0, 0, 0, 0])
+        }
+    }
 }
 
 fn split_interface(interface: &str) -> (String, String) {
     let parts: Vec<&str> = interface.split('.').collect();
     if parts.len() == 2 {
+        // Handle potential edge case where interface name is too short
+        if parts[0].is_empty() {
+            return (interface.to_string(), String::new());
+        }
+        
+        // Safely extract the last character and handle potential string slicing issues
         let phys = parts[0].to_string();
-        let numvlan = format!("{}.{}", &phys[phys.len() - 1..], parts[1]);
-        (phys[..phys.len() - 1].to_string(), numvlan)
-    } else {
-        (interface.to_string(), String::new())
+        if phys.is_empty() {
+            return (interface.to_string(), String::new());
+        }
+        
+        // Safely get the last character
+        if let Some(last_char) = phys.chars().last() {
+            let numvlan = format!("{}.{}", last_char, parts[1]);
+            // Safely create the physical interface name without the last character
+            if phys.len() > 1 {
+                return (phys[..phys.len() - 1].to_string(), numvlan);
+            } else {
+                return (phys, numvlan);
+            }
+        }
     }
+    
+    // Default fallback
+    (interface.to_string(), String::new())
 }
-
-// fn split_interface(interface: &str) -> (String, String) {
-//     let parts: Vec<&str> = interface.split('.').collect();
-//     if parts.len() == 2 {
-//         // Return the full interface name for both cases
-//         (parts[0].to_string(), interface.to_string())
-//     } else {
-//         (interface.to_string(), interface.to_string())
-//     }
-// }

@@ -13,7 +13,10 @@ use embedded_graphics::{
 use std::fs::File;
 use std::io::Read;
 use serde_json::from_str;
-use log::{debug, error};
+use log::{debug, error, warn};
+
+// Use the default display config module
+use crate::default_config::get_default_display_config;
 
 #[derive(Debug)]
 pub enum DisplayError {
@@ -62,56 +65,56 @@ pub struct PoeDisplay {
 }
 
 impl PoeDisplay {
-    pub fn new(config_path: &str, orientation: &str) -> Result<Self, Box<dyn std::error::Error>> {
-    //pub fn new(config_path: &str) -> Result<Self, Box<dyn std::error::Error>> {
-        // let i2c = I2cdev::new("/dev/i2c-1")?;
+    pub fn new(config_path: &str) -> Result<Self, Box<dyn std::error::Error>> {
         debug!("Initializing display with config path: {}", config_path);
+        
+        // Attempt to load config from file
+        let config = match Self::load_config_from_file(config_path) {
+            Ok(config) => {
+                info!("Configuration loaded successfully from: {}", config_path);
+                config
+            },
+            Err(e) => {
+                // Log the error but continue with default config
+                warn!("Failed to load config from {}: {}", config_path, e);
+                warn!("Using default display configuration instead");
+                get_default_display_config()
+            }
+        };
+        
+        debug!("Config details: orientation={:?}, width={}, height={}, elements={}", 
+               config.orientation, config.width, config.height, config.elements.len());
+        
+        // Initialize I2C
         let i2c = I2cdev::new("/dev/i2c-1").map_err(|e| {
             error!("Failed to initialize I2C device: {}", e);
             e
         })?;
 
-        let display = initialize_display(i2c, orientation)?;
+        // Initialize display with orientation from config
+        let display = initialize_display(i2c, &config)?;
         info!("Display initialized successfully");
 
-        // Load config at initialization
+        Ok(PoeDisplay { display, config })
+    }
+    
+    // Helper method to load config from file
+    fn load_config_from_file(config_path: &str) -> Result<DisplayConfig, Box<dyn std::error::Error>> {
+        info!("Loading config file from: {}", config_path);
         let mut file = File::open(config_path)?;
+
         let mut json_content = String::new();
         file.read_to_string(&mut json_content)?;
-        let config: DisplayConfig = from_str(&json_content)?;
-
-        info!("Loading config file from: {}", config_path);
-        let mut file = match File::open(config_path) {
-            Ok(f) => f,
-            Err(e) => {
-                error!("Failed to open config file {}: {}", config_path, e);
-                return Err(Box::new(DisplayError::IoError(e)));
-            }
-        };
-
-        let mut json_content = String::new();
-        if let Err(e) = file.read_to_string(&mut json_content) {
-            error!("Failed to read config file: {}", e);
-            return Err(Box::new(DisplayError::IoError(e)));
-        }
 
         info!("Parsing JSON config");
-        let config: DisplayConfig = match from_str(&json_content) {
-            Ok(c) => c,
-            Err(e) => {
-                error!("Failed to parse config JSON: {}", e);
-                return Err(Box::new(DisplayError::JsonError(e)));
-            }
-        };
-        info!("Config loaded successfully");
-
-
-        Ok(PoeDisplay { display, config })
+        let config: DisplayConfig = from_str::<DisplayConfig>(&json_content)?;
+        
+        info!("Configuration loaded with orientation: {:?}", config.orientation);
+        Ok(config)
     }
 
     pub fn update_display(
         &mut self,
-        orientation_name: &str,
         ip_info: &(String, String, [u8; 4]),
         ip_address: &str,
         interface: &str,
@@ -128,17 +131,8 @@ impl PoeDisplay {
         // Always clear the entire display at the beginning
         disp.clear(BinaryColor::Off)?;
         
-        // Use landscape orientation
-        // let orientation = &self.config.orientations.landscape;
-        
-        // Use the specified orientation
-        let orientation = match orientation_name {
-            "portrait" => &self.config.orientations.portrait,
-            _ => &self.config.orientations.landscape, // Default to landscape for any other value
-        };
-
         // Iterate over elements
-        for element in &orientation.elements {
+        for element in &self.config.elements {
             // First, prepare all components by resolving values and calculating their widths
             struct PreparedComponent {
                 value_text: String,
@@ -173,7 +167,7 @@ impl PoeDisplay {
                     text => text.to_string(),
                 };
                 
-                // Get the font for the value
+                // Get the font for the value - keep this exactly as it was
                 let value_font = match component.value.font.as_str() {
                     "FONT_5X8" => FONT_5X8,
                     "FONT_6X12" => FONT_6X12,
@@ -247,17 +241,17 @@ impl PoeDisplay {
             // Calculate the starting x position based on alignment
             let x_position = match &element.position.x {
                 PositionValue::Text(val) => match val.as_str() {
-                    "center" => (orientation.width - total_element_width) / 2,
+                    "center" => (self.config.width - total_element_width) / 2,
                     "left" => 0,
-                    "right" => orientation.width - total_element_width,
+                    "right" => self.config.width - total_element_width,
                     _ => 0,
                 },
                 PositionValue::Number(val) => *val,
-                PositionValue::Relative { align, reference } => match align.as_str() {
-                    "center" => reference - (total_element_width / 2),
-                    "left" => *reference,
-                    "right" => reference - total_element_width,
-                    _ => *reference,
+                PositionValue::Relative { align, anchor } => match align.as_str() {
+                    "center" => anchor - (total_element_width / 2),
+                    "left" => *anchor,
+                    "right" => anchor - total_element_width,
+                    _ => *anchor,
                 }
             };
             
@@ -267,7 +261,7 @@ impl PoeDisplay {
                     _ => 0,
                 },
                 PositionValue::Number(val) => *val,
-                PositionValue::Relative { align: _, reference } => *reference, // Add this case
+                PositionValue::Relative { align: _, anchor } => *anchor,
             };
             
             // Draw all components with the correct positioning
@@ -297,25 +291,22 @@ impl PoeDisplay {
         
         Ok(())
     }
-
 }
 
-// fn initialize_display(i2c: I2cdev) -> Result<Display, Box<dyn std::error::Error>> {
-fn initialize_display(i2c: I2cdev, orientation: &str) -> Result<Display, Box<dyn std::error::Error>> {
+fn initialize_display(i2c: I2cdev, config: &DisplayConfig) -> Result<Display, Box<dyn std::error::Error>> {
     let interface = I2CDisplayInterface::new(i2c);
 
-    // Choose rotation based on orientation
-    let rotation = match orientation {
-        "portrait" => DisplayRotation::Rotate90, // 90-degree rotation for portrait
-        _ => DisplayRotation::Rotate0,           // Default (landscape)
-    };
+    // Use rotation from config
+    let rotation = config.orientation.to_display_rotation();
+    debug!("Initializing display with rotation: {:?} based on orientation: {:?}", 
+           rotation, config.orientation);
 
-    // let mut disp = Ssd1306::new(interface, DisplaySize128x32, DisplayRotation::Rotate0)
     let mut disp = Ssd1306::new(interface, DisplaySize128x32, rotation)
         .into_buffered_graphics_mode();
 
     <Ssd1306<_, _, _> as SsdDisplayConfig>::init(&mut disp)
         .map_err(|e| format!("Display initialization error: {:?}", e))?;
+    debug!("Display successfully initialized");
     Ok(disp)
 }
 

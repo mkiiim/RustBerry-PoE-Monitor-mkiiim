@@ -8,21 +8,30 @@ use embedded_graphics::{
 };
 use profont::{PROFONT_12_POINT, PROFONT_9_POINT};
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
+// New enum for orientation
+#[derive(Deserialize, Serialize, Debug)]
+pub enum Orientation {
+    #[serde(rename = "landscape")]
+    Landscape,
+    #[serde(rename = "portrait")]
+    Portrait,
+}
+
+impl Orientation {
+    pub fn to_display_rotation(&self) -> DisplayRotation {
+        match self {
+            Orientation::Portrait => DisplayRotation::Rotate90,
+            Orientation::Landscape => DisplayRotation::Rotate0,
+        }
+    }
+}
+
+// The modified DisplayConfig structure - flattened with orientation field
 #[derive(Deserialize)]
 pub struct DisplayConfig {
-    pub orientations: Orientations,
-}
-
-#[derive(Deserialize)]
-pub struct Orientations {
-    pub landscape: OrientationConfig,
-    pub portrait: OrientationConfig,
-}
-
-#[derive(Deserialize)]
-pub struct OrientationConfig {
+    pub orientation: Orientation,
     pub width: i32,
     pub height: i32,
     pub elements: Vec<ElementConfig>,
@@ -42,7 +51,7 @@ pub enum PositionValue {
     Text(String),
     Relative {
         align: String,
-        reference: i32
+        anchor: i32
     }
 }
 
@@ -71,11 +80,10 @@ pub struct PrefixSuffixConfig {
     pub font: String,
 }
 
-
-
-
+// Keep original display type
 pub type Display = Ssd1306<I2CInterface<I2cdev>, DisplaySize128x32, BufferedGraphicsMode<DisplaySize128x32>>;
 
+// Keep all the original font definitions exactly as they were
 pub const PROFONT12: MonoTextStyle<'_, BinaryColor> = MonoTextStyleBuilder::new()
 .font(&PROFONT_12_POINT)
 .text_color(BinaryColor::On)

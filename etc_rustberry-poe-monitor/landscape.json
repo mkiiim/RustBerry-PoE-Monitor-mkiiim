@@ -1,0 +1,236 @@
+{
+  "orientation": "landscape",
+  "width": 128,
+  "height": 32,
+  "elements": [
+    {
+      "id": "network_info",
+      "position": {
+        "x": "center",
+        "y": 7
+      },
+      "components": [
+        {
+          "value": {
+            "text": "ip_info.0",
+            "font": "FONT_5X8"
+          },
+          "suffix": {
+            "text": ": ",
+            "font": "FONT_5X8"
+          }
+        },
+        {
+          "value": {
+            "text": "ip_octets(0)",
+            "font": "FONT_6X12"
+          }
+        },
+        {
+          "prefix": {
+            "text": ".",
+            "font": "FONT_6X12"
+          },
+          "value": {
+            "text": "ip_octets(1)",
+            "font": "FONT_6X12"
+          }
+        },
+        {
+          "prefix": {
+            "text": ".",
+            "font": "FONT_6X12"
+          },
+          "value": {
+            "text": "ip_octets(2)",
+            "font": "FONT_6X12"
+          }
+        },
+        {
+          "prefix": {
+            "text": ".",
+            "font": "FONT_6X12"
+          },
+          "value": {
+            "text": "ip_octets(3)",
+            "font": "FONT_6X12"
+          }
+        }
+      ]
+    },
+    {
+      "id": "cpu_usage",
+      "position": {
+        "x": {
+          "align": "right",
+          "anchor": 38
+        },
+        "y": 19
+      },
+      "components": [
+        {
+          "value": {
+            "text": "cpu_usage",
+            "font": "PCSENIOR8_STYLE"
+          }
+        }
+      ]
+    },
+    {
+      "id": "cpu_usage_units",
+      "position": {
+        "x": {
+          "align": "left",
+          "anchor": 40
+        },
+        "y": 20
+      },
+      "components": [
+        {
+          "value": {
+            "text": "%",
+            "font": "FONT_6X12"
+          },
+          "suffix": {
+            "text": "CPU",
+            "font": "FONT_5X8"
+          }
+        }
+      ]
+    },
+    {
+      "id": "cpu_temp",
+      "position": {
+        "x": {
+          "align": "right",
+          "anchor": 102
+        },
+        "y": 19
+      },
+      "components": [
+        {
+          "value": {
+            "text": "cpu_temp",
+            "font": "PCSENIOR8_STYLE"
+          }
+        }
+      ]
+    },
+    {
+      "id": "cpu_temp_deg",
+      "position": {
+        "x": {
+          "align": "left",
+          "anchor": 101
+        },
+        "y": 22
+      },
+      "components": [
+        {
+          "value": {
+            "text": "°",
+            "font": "PROFONT12"
+          }
+        }
+      ]
+    },
+    {
+      "id": "cpu_temp_units",
+      "position": {
+        "x": {
+          "align": "left",
+          "anchor": 108
+        },
+        "y": 19
+      },
+      "components": [
+        {
+          "value": {
+            "text": "C",
+            "font": "PCSENIOR8_STYLE"
+          }
+        }
+      ]
+    },
+    {
+      "id": "ram_usage",
+      "position": {
+        "x": {
+          "align": "right",
+          "anchor": 38
+        },
+        "y": 30
+      },
+      "components": [
+        {
+          "value": {
+            "text": "ram_usage",
+            "font": "PCSENIOR8_STYLE"
+          }
+        }
+      ]
+    },
+    {
+      "id": "ram_usage_units",
+      "position": {
+        "x": {
+          "align": "left",
+          "anchor": 40
+        },
+        "y": 31
+      },
+      "components": [
+        {
+          "value": {
+            "text": "%",
+            "font": "FONT_6X12"
+          },
+          "suffix": {
+            "text": "RAM",
+            "font": "FONT_5X8"
+          }
+        }
+      ]
+    },
+    {
+      "id": "disk_usage",
+      "position": {
+        "x": {
+          "align": "right",
+          "anchor": 102
+        },
+        "y": 30
+      },
+      "components": [
+        {
+          "value": {
+            "text": "disk_usage",
+            "font": "PCSENIOR8_STYLE"
+          }
+        }
+      ]
+    },
+    {
+      "id": "disk_usage_units",
+      "position": {
+        "x": {
+          "align": "left",
+          "anchor": 103
+        },
+        "y": 31
+      },
+      "components": [
+        {
+          "value": {
+            "text": "%",
+            "font": "FONT_6X12"
+          },
+          "suffix": {
+            "text": "DISK",
+            "font": "FONT_5X8"
+          }
+        }
+      ]
+    }
+  ]
+}
