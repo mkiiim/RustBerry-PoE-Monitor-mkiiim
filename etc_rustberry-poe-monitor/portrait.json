@@ -1,0 +1,358 @@
+{
+  "orientation": "portrait",
+  "width": 32,
+  "height": 128,
+  "elements": [
+    {
+      "id": "interface_phys",
+      "position": {
+        "x": "left",
+        "y": 8
+      },
+      "components": [
+        {
+          "value": {
+            "text": "interface_phys",
+            "font": "PCSENIOR8_STYLE"
+          }
+        }
+      ]
+    },
+    {
+      "id": "interface_numvlan",
+      "position": {
+        "x": "left",
+        "y": 16
+      },
+      "components": [
+        {
+          "value": {
+            "text": "interface_numvlan",
+            "font": "PCSENIOR8_STYLE"
+          }
+        }
+      ]
+    },
+    {
+      "id": "ip_first_octet",
+      "position": {
+        "x": {
+          "align": "left",
+          "anchor": 14
+        },
+        "y": 26
+      },
+      "components": [
+        {
+          "value": {
+            "text": "ip_octets(0)",
+            "font": "FONT_6X12"
+          }
+        }
+      ]
+    },
+    {
+      "id": "ip_second_octet_dot",
+      "position": {
+        "x": {
+          "align": "right",
+          "anchor": 14
+        },
+        "y": 34
+      },
+      "components": [
+        {
+          "value": {
+            "text": ".",
+            "font": "FONT_6X12"
+          }
+        }
+      ]
+    },
+    {
+      "id": "ip_second_octet",
+      "position": {
+        "x": {
+          "align": "left",
+          "anchor": 14
+        },
+        "y": 34
+      },
+      "components": [
+        {
+          "value": {
+            "text": "ip_octets(1)",
+            "font": "FONT_6X12"
+          }
+        }
+      ]
+    },
+    {
+      "id": "ip_third_octet_dot",
+      "position": {
+        "x": {
+          "align": "right",
+          "anchor": 14
+        },
+        "y": 42
+      },
+      "components": [
+        {
+          "value": {
+            "text": ".",
+            "font": "FONT_6X12"
+          }
+        }
+      ]
+    },
+    {
+      "id": "ip_third_octet",
+      "position": {
+        "x": {
+          "align": "left",
+          "anchor": 14
+        },
+        "y": 42
+      },
+      "components": [
+        {
+          "value": {
+            "text": "ip_octets(2)",
+            "font": "FONT_6X12"
+          }
+        }
+      ]
+    },
+    {
+      "id": "ip_fourth_octet_dot",
+      "position": {
+        "x": {
+          "align": "right",
+          "anchor": 14
+        },
+        "y": 50
+      },
+      "components": [
+        {
+          "value": {
+            "text": ".",
+            "font": "FONT_6X12"
+          }
+        }
+      ]
+    },
+    {
+      "id": "ip_fourth_octet",
+      "position": {
+        "x": {
+          "align": "left",
+          "anchor": 14
+        },
+        "y": 50
+      },
+      "components": [
+        {
+          "value": {
+            "text": "ip_octets(3)",
+            "font": "FONT_6X12"
+          }
+        }
+      ]
+    },
+    {
+      "id": "cpu_block",
+      "position": {
+        "x": "right",
+        "y": 63
+      },
+      "components": [
+        {
+          "value": {
+            "text": "CPU",
+            "font": "FONT_5X8"
+          }
+        }
+      ]
+    },
+    {
+      "id": "cpu_usage",
+      "position": {
+        "x": {
+          "align": "right",
+          "anchor": 24
+        },
+        "y": 72
+      },
+      "components": [
+        {
+          "value": {
+            "text": "cpu_usage",
+            "font": "FONT_6X12"
+          }
+        }
+      ]
+    },
+    {
+      "id": "cpu_usage_units",
+      "position": {
+        "x": "right",
+        "y": 72
+      },
+      "components": [
+        {
+          "value": {
+            "text": "%",
+            "font": "FONT_6X12"
+          }
+        }
+      ]
+    },
+    {
+      "id": "cpu_temp",
+      "position": {
+        "x": {
+          "align": "right",
+          "anchor": 24
+        },
+        "y": 81
+      },
+      "components": [
+        {
+          "value": {
+            "text": "cpu_temp",
+            "font": "FONT_6X12"
+          }
+        }
+      ]
+    },
+    {
+      "id": "cpu_temp_deg",
+      "position": {
+        "x": {
+          "align": "left",
+          "anchor": 24
+        },
+        "y": 77
+      },
+      "components": [
+        {
+          "value": {
+            "text": "o",
+            "font": "FONT_5X8"
+          }
+        }
+      ]
+    },
+    {
+      "id": "cpu_temp_units",
+      "position": {
+        "x": "right",
+        "y": 81
+      },
+      "components": [
+        {
+          "value": {
+            "text": "C",
+            "font": "FONT_5X8"
+          }
+        }
+      ]
+    },
+    {
+      "id": "ram_block",
+      "position": {
+        "x": "right",
+        "y": 93
+      },
+      "components": [
+        {
+          "value": {
+            "text": "RAM",
+            "font": "FONT_5X8"
+          }
+        }
+      ]
+    },
+    {
+      "id": "ram_usage",
+      "position": {
+        "x": {
+          "align": "right",
+          "anchor": 24
+        },
+        "y": 102
+      },
+      "components": [
+        {
+          "value": {
+            "text": "ram_usage",
+            "font": "FONT_6X12"
+          }
+        }
+      ]
+    },
+    {
+      "id": "ram_usage_units",
+      "position": {
+        "x": "right",
+        "y": 102
+      },
+      "components": [
+        {
+          "value": {
+            "text": "%",
+            "font": "FONT_6X12"
+          }
+        }
+      ]
+    },
+    {
+      "id": "disk_block",
+      "position": {
+        "x": "right",
+        "y": 114
+      },
+      "components": [
+        {
+          "value": {
+            "text": "DISK",
+            "font": "FONT_5X8"
+          }
+        }
+      ]
+    },
+    {
+      "id": "disk_usage",
+      "position": {
+        "x": {
+          "align": "right",
+          "anchor": 24
+        },
+        "y": 123
+      },
+      "components": [
+        {
+          "value": {
+            "text": "disk_usage",
+            "font": "FONT_6X12"
+          }
+        }
+      ]
+    },
+    {
+      "id": "disk_usage_units",
+      "position": {
+        "x": "right",
+        "y": 123
+      },
+      "components": [
+        {
+          "value": {
+            "text": "%",
+            "font": "FONT_6X12"
+          }
+        }
+      ]
+    }
+  ]
+}
