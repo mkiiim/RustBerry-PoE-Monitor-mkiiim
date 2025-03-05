@@ -125,7 +125,7 @@ impl PoeDisplay {
         cpu_temp_str: &String,
         ram_usage: &String,
         disk_usage: &str,
-        display_orientation: &str,
+        // display_orientation: &str,
     ) -> Result<(), DisplayError> {
         let disp = &mut self.display;
     

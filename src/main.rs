@@ -280,7 +280,8 @@ fn collect_interface_ips() -> Vec<(String, String, [u8; 4])> {
                 current_interface = interface.to_string();
                 debug!("Found interface: {}", current_interface);
             }
-        } else if line.contains("inet ") && current_interface.starts_with("eth0") {
+        // Modified to include all eth interfaces and wlan interfaces
+        } else if line.contains("inet ") && (current_interface.starts_with("eth") || current_interface.starts_with("wlan")) {
             debug!("Found inet line for {}: {}", current_interface, line);
             
             if let Some(ip) = line
@@ -312,6 +313,66 @@ fn collect_interface_ips() -> Vec<(String, String, [u8; 4])> {
         ips.push(("NoInterface".to_string(), "0.0.0.0".to_string(), [0, 0, 0, 0]));
     } else {
         info!("Successfully collected {} interface IPs: {:?}", ips.len(), ips);
+        
+        // Enhanced sorting logic for a more intuitive display order
+        ips.sort_by(|a, b| {
+            let (iface_a, _, _) = a;
+            let (iface_b, _, _) = b;
+            
+            // Helper function to extract interface type and numbers for sorting
+            let parse_interface = |iface: &str| -> (String, u32, Option<u32>) {
+                if iface.starts_with("eth") {
+                    // Handle Ethernet interfaces with possible VLAN (e.g., eth0.30)
+                    let parts: Vec<&str> = iface.split('.').collect();
+                    if parts.len() == 2 {
+                        // Extract the eth number (e.g., 0 from eth0)
+                        let eth_parts: Vec<&str> = parts[0].split_at(3).1.split_inclusive(char::is_alphabetic).collect();
+                        let eth_num = eth_parts[0].parse::<u32>().unwrap_or(0);
+                        
+                        // Extract the VLAN number
+                        let vlan_num = parts[1].parse::<u32>().unwrap_or(0);
+                        return ("eth".to_string(), eth_num, Some(vlan_num));
+                    } else {
+                        // Regular eth interface without VLAN
+                        let eth_parts: Vec<&str> = iface.split_at(3).1.split_inclusive(char::is_alphabetic).collect();
+                        let eth_num = eth_parts[0].parse::<u32>().unwrap_or(0);
+                        return ("eth".to_string(), eth_num, None);
+                    }
+                } else if iface.starts_with("wlan") {
+                    // Handle WLAN interfaces
+                    let wlan_parts: Vec<&str> = iface.split_at(4).1.split_inclusive(char::is_alphabetic).collect();
+                    let wlan_num = wlan_parts[0].parse::<u32>().unwrap_or(0);
+                    return ("wlan".to_string(), wlan_num, None);
+                }
+                // Default case for other interfaces
+                (iface.to_string(), 999, None)
+            };
+            
+            let (type_a, num_a, vlan_a) = parse_interface(iface_a);
+            let (type_b, num_b, vlan_b) = parse_interface(iface_b);
+            
+            // First sort by interface type (eth before wlan)
+            let type_order = type_a.cmp(&type_b);
+            if type_order != std::cmp::Ordering::Equal {
+                return type_order;
+            }
+            
+            // Then by interface number (eth0 before eth1)
+            let num_order = num_a.cmp(&num_b);
+            if num_order != std::cmp::Ordering::Equal {
+                return num_order;
+            }
+            
+            // Finally by VLAN (eth0 before eth0.1, eth0.1 before eth0.2)
+            match (vlan_a, vlan_b) {
+                (Some(v_a), Some(v_b)) => v_a.cmp(&v_b),
+                (None, Some(_)) => std::cmp::Ordering::Less,
+                (Some(_), None) => std::cmp::Ordering::Greater,
+                (None, None) => std::cmp::Ordering::Equal,
+            }
+        });
+        
+        info!("Sorted IP addresses: {:?}", ips);
     }
     
     ips
@@ -374,6 +435,7 @@ fn get_local_ip() -> (String, String, [u8; 4]) {
 }
 
 fn split_interface(interface: &str) -> (String, String) {
+    // First check if it's a VLAN interface with a dot
     let parts: Vec<&str> = interface.split('.').collect();
     if parts.len() == 2 {
         // Handle potential edge case where interface name is too short
@@ -381,7 +443,7 @@ fn split_interface(interface: &str) -> (String, String) {
             return (interface.to_string(), String::new());
         }
         
-        // Safely extract the last character and handle potential string slicing issues
+        // For VLAN interfaces like eth0.99
         let phys = parts[0].to_string();
         if phys.is_empty() {
             return (interface.to_string(), String::new());
@@ -397,6 +459,13 @@ fn split_interface(interface: &str) -> (String, String) {
                 return (phys, numvlan);
             }
         }
+    } else if interface.starts_with("wlan") {
+        // For WiFi interfaces, just use the interface name as is
+        // and leave the second part empty since there's no VLAN
+        return (interface.to_string(), String::new());
+    } else if interface.starts_with("eth") {
+        // For non-VLAN Ethernet interfaces, use the interface name as is
+        return (interface.to_string(), String::new());
     }
     
     // Default fallback
