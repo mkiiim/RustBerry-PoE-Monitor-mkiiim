@@ -157,6 +157,7 @@ impl PoeDisplay {
                     "interface_phys" => interface_phys.to_string(),
                     "interface_numvlan" => interface_numvlan.to_string(),
                     "ip_info.0" => ip_info.0.clone(),
+                    "ip_info.1" => ip_info.1.clone(),
                     "ip_octets(0)" => ip_octets[0].to_string(),
                     "ip_octets(1)" => ip_octets[1].to_string(),
                     "ip_octets(2)" => ip_octets[2].to_string(),
