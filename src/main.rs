@@ -7,10 +7,6 @@ use log::{info, debug, trace, error, warn};
 use clap::Parser;
 use env_logger::{Builder, Env};
 
-use lazy_static::lazy_static;
-use std::process::Command;
-use std::sync::Mutex;
-
 mod fan_controller;
 use fan_controller::FanController;
 
@@ -19,6 +15,9 @@ use display::PoeDisplay;
 
 mod display_types;
 mod default_config;
+
+mod network;
+use network::InterfaceRotator;
 
 #[derive(Parser, Debug)]
 #[clap(author, version, about, long_about = None)]
@@ -33,12 +32,10 @@ struct Args {
     config: String,
 }
 
-
-lazy_static! {
-    static ref IP_ADDRESSES: Mutex<Vec<(String, String, [u8; 4])>> = Mutex::new(Vec::new());
-    static ref CURRENT_INDEX: Mutex<usize> = Mutex::new(0);
-    static ref LAST_IP_REFRESH: Mutex<Instant> = Mutex::new(Instant::now());
-}
+// How often the interface list is re-read from the system
+const INTERFACE_REFRESH_INTERVAL: Duration = Duration::from_secs(60);
+// Show the next interface every this many loop iterations
+const INTERFACE_ROTATE_EVERY: u64 = 5;
 
 fn main() -> Result<(), Box<dyn Error>> {
     let env = Env::default().default_filter_or("info");
@@ -106,47 +103,20 @@ fn main() -> Result<(), Box<dyn Error>> {
         warn!("Failed to turn off fan initially: {}", e);
     }
     
-    let mut iteration_count = 0;
-    let mut ip_info = get_local_ip();
-    
-    // Add a way to detect network changes
-    let mut previous_ip_info = get_local_ip();
-    let mut network_check_counter = 0;
+    let mut iteration_count: u64 = 0;
+    let mut interfaces = InterfaceRotator::new(INTERFACE_REFRESH_INTERVAL);
+    let mut interface = interfaces.next();
 
     loop {
         iteration_count += 1;
-        info!("main loop iteration: {}", iteration_count);
+        trace!("main loop iteration: {}", iteration_count);
         
         // Only refresh system info every iteration
         sys.refresh_cpu_usage();
         sys.refresh_memory();
         
-        // Only update IP info every 5 iterations (or similar interval)
-        if iteration_count % 5 == 0 {
-            network_check_counter += 1;
-            
-            // Every 12 network checks (about 1 minute if each loop is 1 second), 
-            // perform a more thorough check to see if the network has changed
-            if network_check_counter >= 15 {
-                network_check_counter = 0;
-                
-                // Force a network refresh by clearing the IP_ADDRESSES cache
-                {
-                    let mut addresses = IP_ADDRESSES.lock().unwrap();
-                    if !addresses.is_empty() {
-                        info!("Periodic network check: Clearing IP cache to force refresh");
-                        addresses.clear();
-                    }
-                }
-            }
-            
-            ip_info = get_local_ip();
-            
-            // Check if IP info has changed, and log it clearly if it has
-            if ip_info.1 != previous_ip_info.1 || ip_info.0 != previous_ip_info.0 {
-                info!("IP information changed. Old: {:?}, New: {:?}", previous_ip_info, ip_info);
-                previous_ip_info = ip_info.clone();
-            }
+        if iteration_count % INTERFACE_ROTATE_EVERY == 0 {
+            interface = interfaces.next();
         }
 
         let cpu_temp = get_cpu_temperature();
@@ -177,7 +147,8 @@ fn main() -> Result<(), Box<dyn Error>> {
             info!("Updated disk usage: {}", disk_usage);
         }
         
-        let (interface_phys, interface_numvlan) = split_interface(&ip_info.0);
+        let ip_info = (interface.name.clone(), interface.ip.to_string(), interface.ip.octets());
+        let (interface_phys, interface_numvlan) = interface.display_parts();
         
         // Log values we're about to display for debugging
         debug!(
@@ -248,226 +219,4 @@ fn get_disk_usage() -> f64 {
     } else {
         0.0
     }
-}
-
-fn collect_interface_ips() -> Vec<(String, String, [u8; 4])> {
-    info!("Starting to collect interface IPs...");
-    
-    let output = match Command::new("ip").args(&["addr"]).output() {
-        Ok(output) => output,
-        Err(e) => {
-            error!("Failed to execute ip command: {}", e);
-            return vec![("NoInterface".to_string(), "0.0.0.0".to_string(), [0, 0, 0, 0])];
-        }
-    };
-
-    let output_str = String::from_utf8_lossy(&output.stdout);
-    debug!("Raw 'ip addr' output: \n{}", output_str);
-    
-    let mut ips = Vec::new();
-    let mut current_interface = String::new();
-
-    info!("Parsing interfaces from ip command output...");
-    
-    for line in output_str.lines() {
-        debug!("Processing line: {}", line);
-        
-        if line.starts_with(char::is_numeric) {
-            if let Some(interface) = line.split(": ").nth(1)
-                .map(|s| s.split(' ').next().unwrap()
-                .trim_end_matches(':')
-                .split('@').next().unwrap()) {
-                current_interface = interface.to_string();
-                debug!("Found interface: {}", current_interface);
-            }
-        // Modified to include all eth interfaces and wlan interfaces
-        } else if line.contains("inet ") && (current_interface.starts_with("eth") || current_interface.starts_with("wlan")) {
-            debug!("Found inet line for {}: {}", current_interface, line);
-            
-            if let Some(ip) = line
-                .split_whitespace()
-                .find(|s| s.contains("/"))
-                .map(|s| s.split('/').next().unwrap().to_string())
-            {
-                debug!("Extracted IP: {}", ip);
-                
-                // Parse IP into [u8;4] octets
-                let octs: Vec<u8> = ip
-                    .split('.')
-                    .map(|num| num.parse().unwrap_or(0))
-                    .collect();
-                if octs.len() == 4 {
-                    info!("Adding interface: {}, IP: {}, octets: {:?}", 
-                          current_interface, ip, [octs[0], octs[1], octs[2], octs[3]]);
-                    ips.push((current_interface.clone(), ip, [octs[0], octs[1], octs[2], octs[3]]));
-                } else {
-                    warn!("Invalid IP format for {}: {}", current_interface, ip);
-                }
-            }
-        }
-    }
-    
-    if ips.is_empty() {
-        warn!("No interfaces and IPs were found matching criteria");
-        // Return a dummy entry so we have something to display
-        ips.push(("NoInterface".to_string(), "0.0.0.0".to_string(), [0, 0, 0, 0]));
-    } else {
-        info!("Successfully collected {} interface IPs: {:?}", ips.len(), ips);
-        
-        // Enhanced sorting logic for a more intuitive display order
-        ips.sort_by(|a, b| {
-            let (iface_a, _, _) = a;
-            let (iface_b, _, _) = b;
-            
-            // Helper function to extract interface type and numbers for sorting
-            let parse_interface = |iface: &str| -> (String, u32, Option<u32>) {
-                if iface.starts_with("eth") {
-                    // Handle Ethernet interfaces with possible VLAN (e.g., eth0.30)
-                    let parts: Vec<&str> = iface.split('.').collect();
-                    if parts.len() == 2 {
-                        // Extract the eth number (e.g., 0 from eth0)
-                        let eth_parts: Vec<&str> = parts[0].split_at(3).1.split_inclusive(char::is_alphabetic).collect();
-                        let eth_num = eth_parts[0].parse::<u32>().unwrap_or(0);
-                        
-                        // Extract the VLAN number
-                        let vlan_num = parts[1].parse::<u32>().unwrap_or(0);
-                        return ("eth".to_string(), eth_num, Some(vlan_num));
-                    } else {
-                        // Regular eth interface without VLAN
-                        let eth_parts: Vec<&str> = iface.split_at(3).1.split_inclusive(char::is_alphabetic).collect();
-                        let eth_num = eth_parts[0].parse::<u32>().unwrap_or(0);
-                        return ("eth".to_string(), eth_num, None);
-                    }
-                } else if iface.starts_with("wlan") {
-                    // Handle WLAN interfaces
-                    let wlan_parts: Vec<&str> = iface.split_at(4).1.split_inclusive(char::is_alphabetic).collect();
-                    let wlan_num = wlan_parts[0].parse::<u32>().unwrap_or(0);
-                    return ("wlan".to_string(), wlan_num, None);
-                }
-                // Default case for other interfaces
-                (iface.to_string(), 999, None)
-            };
-            
-            let (type_a, num_a, vlan_a) = parse_interface(iface_a);
-            let (type_b, num_b, vlan_b) = parse_interface(iface_b);
-            
-            // First sort by interface type (eth before wlan)
-            let type_order = type_a.cmp(&type_b);
-            if type_order != std::cmp::Ordering::Equal {
-                return type_order;
-            }
-            
-            // Then by interface number (eth0 before eth1)
-            let num_order = num_a.cmp(&num_b);
-            if num_order != std::cmp::Ordering::Equal {
-                return num_order;
-            }
-            
-            // Finally by VLAN (eth0 before eth0.1, eth0.1 before eth0.2)
-            match (vlan_a, vlan_b) {
-                (Some(v_a), Some(v_b)) => v_a.cmp(&v_b),
-                (None, Some(_)) => std::cmp::Ordering::Less,
-                (Some(_), None) => std::cmp::Ordering::Greater,
-                (None, None) => std::cmp::Ordering::Equal,
-            }
-        });
-        
-        info!("Sorted IP addresses: {:?}", ips);
-    }
-    
-    ips
-}
-
-fn get_local_ip() -> (String, String, [u8; 4]) {
-    // Use a result pattern to handle potential errors while obtaining locks
-    let result = (|| -> Result<(String, String, [u8; 4]), Box<dyn std::error::Error>> {
-        let mut addresses = IP_ADDRESSES.lock().unwrap();
-        let mut index = CURRENT_INDEX.lock().unwrap();
-        let mut last_refresh = LAST_IP_REFRESH.lock().unwrap();
-        
-        // Force a refresh of IP addresses every 5 minutes (300 seconds)
-        let refresh_interval = Duration::from_secs(300);
-        let should_refresh = addresses.is_empty() || last_refresh.elapsed() >= refresh_interval;
-
-        // Log current state
-        info!(
-            "get_local_ip called. Current addresses: {:?}, index: {}, time since last refresh: {:?}, should refresh: {}",
-            addresses, *index, last_refresh.elapsed(), should_refresh
-        );
-        
-        // Refresh if needed
-        if should_refresh {
-            info!("Refreshing IP addresses...");
-            *addresses = collect_interface_ips();
-            *last_refresh = Instant::now();
-            
-            // Reset index when we refresh
-            *index = 0;
-        }
-
-        // Safely get an address or return a default
-        if addresses.is_empty() {
-            warn!("No IP addresses found, returning dummy record");
-            return Ok(("NoInterface".to_string(), "0.0.0.0".to_string(), [0, 0, 0, 0]));
-        }
-        
-        if *index >= addresses.len() {
-            info!("Index {} is out of bounds, resetting to 0", *index);
-            *index = 0; // Reset if out of bounds
-        }
-        
-        let (iface, ip, ip_octets) = addresses[*index].clone();
-        *index = (*index + 1) % addresses.len();
-        
-        info!("Returning IP info: interface={}, ip={}, octets={:?}, next index will be {}", 
-              iface, ip, ip_octets, *index);
-        Ok((iface, ip, ip_octets))
-    })();
-    
-    // Handle any potential errors with mutex locks
-    match result {
-        Ok(info) => info,
-        Err(e) => {
-            error!("Error in get_local_ip: {}. Returning default values.", e);
-            ("NoInterface".to_string(), "0.0.0.0".to_string(), [0, 0, 0, 0])
-        }
-    }
-}
-
-fn split_interface(interface: &str) -> (String, String) {
-    // First check if it's a VLAN interface with a dot
-    let parts: Vec<&str> = interface.split('.').collect();
-    if parts.len() == 2 {
-        // Handle potential edge case where interface name is too short
-        if parts[0].is_empty() {
-            return (interface.to_string(), String::new());
-        }
-        
-        // For VLAN interfaces like eth0.99
-        let phys = parts[0].to_string();
-        if phys.is_empty() {
-            return (interface.to_string(), String::new());
-        }
-        
-        // Safely get the last character
-        if let Some(last_char) = phys.chars().last() {
-            let numvlan = format!("{}.{}", last_char, parts[1]);
-            // Safely create the physical interface name without the last character
-            if phys.len() > 1 {
-                return (phys[..phys.len() - 1].to_string(), numvlan);
-            } else {
-                return (phys, numvlan);
-            }
-        }
-    } else if interface.starts_with("wlan") {
-        // For WiFi interfaces, just use the interface name as is
-        // and leave the second part empty since there's no VLAN
-        return (interface.to_string(), String::new());
-    } else if interface.starts_with("eth") {
-        // For non-VLAN Ethernet interfaces, use the interface name as is
-        return (interface.to_string(), String::new());
-    }
-    
-    // Default fallback
-    (interface.to_string(), String::new())
 }
