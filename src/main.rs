@@ -7,8 +7,8 @@ use log::{info, debug, trace, error, warn};
 use clap::Parser;
 use env_logger::{Builder, Env};
 
-mod fan_controller;
-use fan_controller::FanController;
+mod fan;
+use fan::FanController;
 
 mod display;
 use display::PoeDisplay;
@@ -68,7 +68,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     };
 
     // Initialize fan controller with graceful error handling
-    let mut fan_controller = match FanController::new(args.temp_on, args.temp_off) {
+    let mut fan = match FanController::new(args.temp_on, args.temp_off) {
         Ok(fc) => {
             info!("Fan controller initialized. temp-on: {}, temp-off: {}", 
                   fc.temp_on, fc.temp_off);
@@ -99,7 +99,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     let mut last_disk_update = Instant::now() - disk_update_interval;
     info!("Starting main loop");
     
-    if let Err(e) = fan_controller.fan_off() {
+    if let Err(e) = fan.set(false) {
         warn!("Failed to turn off fan initially: {}", e);
     }
     
@@ -124,20 +124,9 @@ fn main() -> Result<(), Box<dyn Error>> {
         let cpu_usage = format!("{:.1}", sys.global_cpu_info().cpu_usage());
         let ram_usage = format!("{:.1}", get_ram_usage(&sys));
         
-        // Fan control logic
-        trace!("Checking fan controller. Fan running: {}", fan_controller.is_running);
-        trace!("CPU Temp: {}", cpu_temp);
-        
-        if fan_controller.is_running {
-            if cpu_temp <= fan_controller.temp_off {
-                if let Err(e) = fan_controller.fan_off() {
-                    warn!("Failed to turn off fan: {}", e);
-                }
-            }
-        } else if cpu_temp >= fan_controller.temp_on {
-            if let Err(e) = fan_controller.fan_on() {
-                warn!("Failed to turn on fan: {}", e);
-            }
+        trace!("CPU Temp: {}, fan running: {}", cpu_temp, fan.is_running());
+        if let Err(e) = fan.update(cpu_temp) {
+            warn!("{}", e);
         }
         
         // Update disk usage less frequently
