@@ -66,6 +66,10 @@ Check out the [wiki page](https://github.com/jackra1n/RustBerry-PoE-Monitor/wiki
 
 ### Fan Control Settings
 
+The fan turns on at 40°C (`temp-on`) and only stops once the CPU cools to 30°C (`temp-off`). On startup it runs unless the CPU is already at or below `temp-off`, and it stays on whenever the CPU temperature can't be read.
+
+Fan control requires the PoE HAT's FAN switch to be set to **P0**. In the **EN** position the fan always runs and these settings have no effect.
+
 To change the fan on/off temperature, you can add `temp-on` and `temp-off` arguments to the application.
 If you installed the application using the install script, you can edit the systemd service file to change the arguments.
 

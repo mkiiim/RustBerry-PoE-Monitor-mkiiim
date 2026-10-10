@@ -22,10 +22,10 @@ use network::InterfaceRotator;
 #[derive(Parser, Debug)]
 #[clap(author, version, about, long_about = None)]
 struct Args {
-    #[clap(long, default_value_t = 60.0)]
+    #[clap(long, default_value_t = 40.0)]
     temp_on: f32,
 
-    #[clap(long, default_value_t = 50.0)]
+    #[clap(long, default_value_t = 30.0)]
     temp_off: f32,
 
     #[arg(long, default_value = "/etc/rustberry-poe-monitor/portrait.json")]
@@ -99,8 +99,8 @@ fn main() -> Result<(), Box<dyn Error>> {
     let mut last_disk_update = Instant::now() - disk_update_interval;
     info!("Starting main loop");
     
-    if let Err(e) = fan.set(false) {
-        warn!("Failed to turn off fan initially: {}", e);
+    if let Err(e) = fan.start(get_cpu_temperature()) {
+        warn!("Failed to set initial fan state: {}", e);
     }
     
     let mut iteration_count: u64 = 0;
@@ -120,11 +120,11 @@ fn main() -> Result<(), Box<dyn Error>> {
         }
 
         let cpu_temp = get_cpu_temperature();
-        let cpu_temp_str = format!("{:.1}", cpu_temp);
+        let cpu_temp_str = format!("{:.1}", cpu_temp.unwrap_or(0.0));
         let cpu_usage = format!("{:.1}", sys.global_cpu_info().cpu_usage());
         let ram_usage = format!("{:.1}", get_ram_usage(&sys));
         
-        trace!("CPU Temp: {}, fan running: {}", cpu_temp, fan.is_running());
+        trace!("CPU Temp: {:?}, fan running: {}", cpu_temp, fan.is_running());
         if let Err(e) = fan.update(cpu_temp) {
             warn!("{}", e);
         }
@@ -173,16 +173,15 @@ fn main() -> Result<(), Box<dyn Error>> {
     }
 }
 
-fn get_cpu_temperature() -> f32 {
-    match fs::read_to_string("/sys/class/thermal/thermal_zone0/temp") {
-        Ok(temp_contents) => {
-            temp_contents.trim().parse::<f32>().unwrap_or(0.0) / 1000.0
-        },
-        Err(_) => {
-            warn!("Failed to read CPU temperature, returning 0.0");
-            0.0
-        }
+fn get_cpu_temperature() -> Option<f32> {
+    let temp = fs::read_to_string("/sys/class/thermal/thermal_zone0/temp")
+        .ok()
+        .and_then(|contents| contents.trim().parse::<f32>().ok())
+        .map(|millidegrees| millidegrees / 1000.0);
+    if temp.is_none() {
+        warn!("Failed to read CPU temperature");
     }
+    temp
 }
 
 fn get_ram_usage(sys: &System) -> f64 {
