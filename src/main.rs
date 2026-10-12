@@ -1,8 +1,6 @@
 use std::error::Error;
-use std::fs;
 use std::thread;
-use std::time::{Duration, Instant};
-use sysinfo::{System, Disks, RefreshKind, CpuRefreshKind, MemoryRefreshKind};
+use std::time::Duration;
 use log::{info, debug, trace, error, warn};
 use clap::Parser;
 use env_logger::{Builder, Env};
@@ -15,6 +13,9 @@ use display::PoeDisplay;
 
 mod display_types;
 mod default_config;
+
+mod metrics;
+use metrics::MetricsCollector;
 
 mod network;
 use network::InterfaceRotator;
@@ -36,6 +37,8 @@ struct Args {
 const INTERFACE_REFRESH_INTERVAL: Duration = Duration::from_secs(60);
 // Show the next interface every this many loop iterations
 const INTERFACE_ROTATE_EVERY: u64 = 5;
+// How often disk usage is re-read
+const DISK_REFRESH_INTERVAL: Duration = Duration::from_secs(60);
 
 fn main() -> Result<(), Box<dyn Error>> {
     let env = Env::default().default_filter_or("info");
@@ -82,24 +85,10 @@ fn main() -> Result<(), Box<dyn Error>> {
         }
     };
 
-    let mut sys: System = System::new_with_specifics(
-        RefreshKind::new()
-            .with_cpu(CpuRefreshKind::new().with_cpu_usage())
-            .with_memory(MemoryRefreshKind::new().with_ram()),
-    );
-
-    debug!("System initialized. System info:");
-    debug!("================================");
-    debug!("System name:             {}", System::name().unwrap_or_default());
-    debug!("System kernel version:   {}", System::kernel_version().unwrap_or_default());
-    debug!("System OS version:       {}", System::os_version().unwrap_or_default());
-
-    let mut disk_usage = String::new();
-    let disk_update_interval = Duration::from_secs(60);
-    let mut last_disk_update = Instant::now() - disk_update_interval;
+    let mut metrics = MetricsCollector::new(DISK_REFRESH_INTERVAL);
     info!("Starting main loop");
     
-    if let Err(e) = fan.start(get_cpu_temperature()) {
+    if let Err(e) = fan.start(metrics::cpu_temperature()) {
         warn!("Failed to set initial fan state: {}", e);
     }
     
@@ -111,29 +100,20 @@ fn main() -> Result<(), Box<dyn Error>> {
         iteration_count += 1;
         trace!("main loop iteration: {}", iteration_count);
         
-        // Only refresh system info every iteration
-        sys.refresh_cpu_usage();
-        sys.refresh_memory();
-        
+        let m = metrics.sample();
+
         if iteration_count % INTERFACE_ROTATE_EVERY == 0 {
             interface = interfaces.next();
         }
 
-        let cpu_temp = get_cpu_temperature();
-        let cpu_temp_str = format!("{:.1}", cpu_temp.unwrap_or(0.0));
-        let cpu_usage = format!("{:.1}", sys.global_cpu_info().cpu_usage());
-        let ram_usage = format!("{:.1}", get_ram_usage(&sys));
+        let cpu_temp_str = format!("{:.1}", m.cpu_temp.unwrap_or(0.0));
+        let cpu_usage = format!("{:.1}", m.cpu_usage);
+        let ram_usage = format!("{:.1}", m.ram_usage);
+        let disk_usage = format!("{:.1}", m.disk_usage);
         
-        trace!("CPU Temp: {:?}, fan running: {}", cpu_temp, fan.is_running());
-        if let Err(e) = fan.update(cpu_temp) {
+        trace!("CPU Temp: {:?}, fan running: {}", m.cpu_temp, fan.is_running());
+        if let Err(e) = fan.update(m.cpu_temp) {
             warn!("{}", e);
-        }
-        
-        // Update disk usage less frequently
-        if last_disk_update.elapsed() >= disk_update_interval {
-            last_disk_update = Instant::now();
-            disk_usage = format!("{:.1}", get_disk_usage());
-            info!("Updated disk usage: {}", disk_usage);
         }
         
         let ip_info = (interface.name.clone(), interface.ip.to_string(), interface.ip.octets());
@@ -170,41 +150,5 @@ fn main() -> Result<(), Box<dyn Error>> {
                 thread::sleep(Duration::from_millis(100));
             }
         }
-    }
-}
-
-fn get_cpu_temperature() -> Option<f32> {
-    let temp = fs::read_to_string("/sys/class/thermal/thermal_zone0/temp")
-        .ok()
-        .and_then(|contents| contents.trim().parse::<f32>().ok())
-        .map(|millidegrees| millidegrees / 1000.0);
-    if temp.is_none() {
-        warn!("Failed to read CPU temperature");
-    }
-    temp
-}
-
-fn get_ram_usage(sys: &System) -> f64 {
-    let total_memory = sys.total_memory();
-    if total_memory == 0 {
-        return 0.0;
-    }
-    let used_memory = sys.used_memory();
-    (used_memory as f64 / total_memory as f64) * 100.0
-}
-
-fn get_disk_usage() -> f64 {
-    let mut disks = Disks::new_with_refreshed_list();
-    if let Some(disk) = disks.first_mut() {
-        disk.refresh();
-        let total_space = disk.total_space();
-        let available_space = disk.available_space();
-        if total_space > 0 {
-            (1.0 - (available_space as f64 / total_space as f64)) * 100.0
-        } else {
-            0.0
-        }
-    } else {
-        0.0
     }
 }
