@@ -113,6 +113,15 @@ impl PoeDisplay {
         Ok(config)
     }
 
+    /// Blanks the screen and switches the panel off. The fan and everything
+    /// else keep running; only drawing stops.
+    pub fn power_off(&mut self) -> Result<(), DisplayError> {
+        self.display.clear(BinaryColor::Off)?;
+        self.display.flush()?;
+        self.display.set_display_on(false)?;
+        Ok(())
+    }
+
     pub fn update_display(
         &mut self,
         ip_info: &(String, String, [u8; 4]),

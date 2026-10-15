@@ -82,6 +82,14 @@ Change the `ExecStart` line to the following:
 ExecStart=/usr/local/bin/rustberry-poe-monitor --temp-on 60 --temp-off 50
 ```
 
+### Screen Off
+
+To protect the OLED from burn-in, `--screen-off` keeps the display switched off while fan control continues to run:
+
+```bash
+ExecStart=/usr/local/bin/rustberry-poe-monitor --config /etc/rustberry-poe-monitor/portrait.json --screen-off
+```
+
 ### Display Configuration
 
 RustBerry-PoE-Monitor uses a JSON file to define the OLED display layout and contents. You can specify a custom configuration file using the `--config` argument in the `/etc/systemd/system/rustberry-poe-monitor.service` file:

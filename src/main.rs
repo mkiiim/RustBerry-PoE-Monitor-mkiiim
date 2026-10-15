@@ -31,6 +31,10 @@ struct Args {
 
     #[arg(long, default_value = "/etc/rustberry-poe-monitor/portrait.json")]
     config: String,
+
+    /// Keep the display switched off; fan control still runs
+    #[arg(long)]
+    screen_off: bool,
 }
 
 // How often the interface list is re-read from the system
@@ -92,6 +96,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         warn!("Failed to set initial fan state: {}", e);
     }
     
+    let mut display_powered_off = false;
     let mut iteration_count: u64 = 0;
     let mut interfaces = InterfaceRotator::new(INTERFACE_REFRESH_INTERVAL);
     let mut interface = interfaces.next();
@@ -114,6 +119,21 @@ fn main() -> Result<(), Box<dyn Error>> {
         trace!("CPU Temp: {:?}, fan running: {}", m.cpu_temp, fan.is_running());
         if let Err(e) = fan.update(m.cpu_temp) {
             warn!("{}", e);
+        }
+
+        if args.screen_off {
+            // Retried every loop until it succeeds
+            if !display_powered_off {
+                match poe_disp.power_off() {
+                    Ok(()) => {
+                        info!("Display switched off (--screen-off)");
+                        display_powered_off = true;
+                    },
+                    Err(e) => error!("Failed to switch display off: {:?}", e),
+                }
+            }
+            thread::sleep(Duration::from_millis(500));
+            continue;
         }
         
         let ip_info = (interface.name.clone(), interface.ip.to_string(), interface.ip.octets());
