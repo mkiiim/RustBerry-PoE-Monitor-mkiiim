@@ -90,6 +90,20 @@ To protect the OLED from burn-in, `--screen-off` keeps the display switched off 
 ExecStart=/usr/local/bin/rustberry-poe-monitor --config /etc/rustberry-poe-monitor/portrait.json --screen-off
 ```
 
+### Wake Endpoint
+
+With `--listen`, a small HTTP endpoint can wake the display for a while, e.g. from a Homebridge switch:
+
+```bash
+ExecStart=/usr/local/bin/rustberry-poe-monitor --config /etc/rustberry-poe-monitor/portrait.json --screen-off --listen 0.0.0.0:8590
+```
+
+- `/wake` turns the display on for 5 minutes (`--wake-seconds`), or `/wake?seconds=N` (up to 3600)
+- `/sleep` turns it off again
+- `/status` returns `{"on":true,"remaining":295}`
+
+GET and POST are both accepted. There is no authentication, so only listen on a trusted network.
+
 ### Display Configuration
 
 RustBerry-PoE-Monitor uses a JSON file to define the OLED display layout and contents. You can specify a custom configuration file using the `--config` argument in the `/etc/systemd/system/rustberry-poe-monitor.service` file:

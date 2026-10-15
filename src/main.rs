@@ -17,6 +17,9 @@ use metrics::MetricsCollector;
 mod network;
 use network::InterfaceRotator;
 
+mod wake;
+use wake::WakeControl;
+
 #[derive(Parser, Debug)]
 #[clap(author, version, about, long_about = None)]
 struct Args {
@@ -29,9 +32,17 @@ struct Args {
     #[arg(long, default_value = "/etc/rustberry-poe-monitor/portrait.json")]
     config: String,
 
-    /// Keep the display switched off; fan control still runs
+    /// Keep the display switched off unless woken; fan control still runs
     #[arg(long)]
     screen_off: bool,
+
+    /// Serve /wake, /sleep and /status on this address, e.g. 0.0.0.0:8590
+    #[arg(long)]
+    listen: Option<String>,
+
+    /// How long /wake keeps the display on, in seconds
+    #[arg(long, default_value_t = 300)]
+    wake_seconds: u64,
 }
 
 // How often the interface list is re-read from the system
@@ -93,6 +104,11 @@ fn main() -> Result<(), Box<dyn Error>> {
         warn!("Failed to set initial fan state: {}", e);
     }
     
+    let wake = WakeControl::new(Duration::from_secs(args.wake_seconds));
+    if let Some(addr) = &args.listen {
+        wake::spawn_server(addr, wake.clone());
+    }
+
     let mut display_powered_off = false;
     let mut iteration_count: u64 = 0;
     let mut interfaces = InterfaceRotator::new(INTERFACE_REFRESH_INTERVAL);
@@ -113,12 +129,12 @@ fn main() -> Result<(), Box<dyn Error>> {
             warn!("{}", e);
         }
 
-        if args.screen_off {
+        if args.screen_off && !wake.is_awake() {
             // Retried every loop until it succeeds
             if !display_powered_off {
                 match poe_disp.power_off() {
                     Ok(()) => {
-                        info!("Display switched off (--screen-off)");
+                        info!("Display switched off");
                         display_powered_off = true;
                     },
                     Err(e) => error!("Failed to switch display off: {:?}", e),
@@ -134,6 +150,16 @@ fn main() -> Result<(), Box<dyn Error>> {
         match poe_disp.update_display(&values) {
             Ok(_) => {
                 trace!("Display updated successfully");
+                // Switched on only after drawing, so the old frame is never shown
+                if display_powered_off {
+                    match poe_disp.power_on() {
+                        Ok(()) => {
+                            info!("Display switched on");
+                            display_powered_off = false;
+                        },
+                        Err(e) => error!("Failed to switch display on: {:?}", e),
+                    }
+                }
                 // Slow down the update rate to reduce flickering
                 thread::sleep(Duration::from_millis(500));
             },

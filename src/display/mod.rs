@@ -100,6 +100,12 @@ impl PoeDisplay {
         Ok(())
     }
 
+    /// Switches the panel back on, showing whatever was last drawn.
+    pub fn power_on(&mut self) -> Result<(), DisplayError> {
+        self.display.set_display_on(true)?;
+        Ok(())
+    }
+
     /// Redraws the whole screen with `values`.
     pub fn update_display(&mut self, values: &DisplayValues) -> Result<(), DisplayError> {
         self.display.clear(BinaryColor::Off)?;
