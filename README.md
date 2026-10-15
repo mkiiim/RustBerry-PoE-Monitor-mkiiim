@@ -21,6 +21,9 @@ This tool provides real-time monitoring of your Raspberry Pi's system statistics
     - [Manual Installation](#manual-installation)
   - [📝 Configuration](#-configuration)
     - [Fan Control Settings](#fan-control-settings)
+    - [Screen Off](#screen-off)
+    - [Wake Endpoint](#wake-endpoint)
+      - [Homebridge Switch](#homebridge-switch)
     - [Display Configuration](#display-configuration)
       - [JSON Configuration Schema](#json-configuration-schema)
       - [Dynamic Variables](#dynamic-variables)
@@ -46,6 +49,7 @@ This tool provides real-time monitoring of your Raspberry Pi's system statistics
 - Configurable display orientation in both landscape and portrait 
 - Customizable display layout
 - Automatic fan control based on the CPU temperature 🌡️
+- Screen-off mode to prevent OLED burn-in, with an HTTP endpoint to wake the display on demand (e.g. from a Homebridge switch)
 
 ## 📦 Installation
 
@@ -68,7 +72,7 @@ Check out the [wiki page](https://github.com/jackra1n/RustBerry-PoE-Monitor/wiki
 
 The fan turns on at 40°C (`temp-on`) and only stops once the CPU cools to 30°C (`temp-off`). On startup it runs unless the CPU is already at or below `temp-off`, and it stays on whenever the CPU temperature can't be read.
 
-Fan control requires the PoE HAT's FAN switch to be set to **P0**. In the **EN** position the fan always runs and these settings have no effect.
+Fan control requires the PoE HAT's FAN switch to be set to **P0**. In the **EN** position the fan always runs and these settings have no effect. The switch position can't be read in software, so check it on the board.
 
 To change the fan on/off temperature, you can add `temp-on` and `temp-off` arguments to the application.
 If you installed the application using the install script, you can edit the systemd service file to change the arguments.
@@ -103,6 +107,25 @@ ExecStart=/usr/local/bin/rustberry-poe-monitor --config /etc/rustberry-poe-monit
 - `/status` returns `{"on":true,"remaining":295}`
 
 GET and POST are both accepted. There is no authentication, so only listen on a trusted network.
+
+#### Homebridge Switch
+
+With [homebridge-http-switch](https://github.com/Supereg/homebridge-http-switch), each Pi gets a switch that shows whether its display is awake and turns itself off when the wake time runs out:
+
+```json
+{
+  "accessory": "HTTP-SWITCH",
+  "name": "pidev Screen",
+  "switchType": "stateful",
+  "onUrl": "http://10.0.20.133:8590/wake",
+  "offUrl": "http://10.0.20.133:8590/sleep",
+  "statusUrl": "http://10.0.20.133:8590/status",
+  "statusPattern": "\"on\":true",
+  "pullInterval": 10000
+}
+```
+
+A stateful switch can only call one URL, so add one switch per Pi. To wake several Pis at once, create a scene in the Home app that turns their switches on.
 
 ### Display Configuration
 
@@ -198,8 +221,8 @@ You can use these dynamic variables in the `text` field:
 |----------|-------------|
 | `ip_info.0` | Network interface name (e.g., "eth0.99")|
 | `ip_info.1` | IP address (e.g., "192.168.0.1")|
-| `interface_phys` | Physical network interface(s) (e.g., "eth0") |
-| `interface_numvlan` | VLAN identifier (e.g., "99")|
+| `interface_phys` | Interface name, or its prefix for a VLAN interface (e.g., "eth0", or "eth" for "eth0.99") |
+| `interface_numvlan` | Interface number and VLAN for a VLAN interface (e.g., "0.99" for "eth0.99"), otherwise empty |
 | `ip_octets(0)` - `ip_octets(3)` | Individual octets of the IP address |
 | `cpu_usage` | CPU usage percentage |
 | `cpu_temp` | CPU temperature in Celsius |
