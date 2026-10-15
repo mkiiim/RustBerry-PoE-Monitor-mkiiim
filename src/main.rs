@@ -9,10 +9,7 @@ mod fan;
 use fan::FanController;
 
 mod display;
-use display::PoeDisplay;
-
-mod display_types;
-mod default_config;
+use display::{DisplayValues, PoeDisplay};
 
 mod metrics;
 use metrics::MetricsCollector;
@@ -111,11 +108,6 @@ fn main() -> Result<(), Box<dyn Error>> {
             interface = interfaces.next();
         }
 
-        let cpu_temp_str = format!("{:.1}", m.cpu_temp.unwrap_or(0.0));
-        let cpu_usage = format!("{:.1}", m.cpu_usage);
-        let ram_usage = format!("{:.1}", m.ram_usage);
-        let disk_usage = format!("{:.1}", m.disk_usage);
-        
         trace!("CPU Temp: {:?}, fan running: {}", m.cpu_temp, fan.is_running());
         if let Err(e) = fan.update(m.cpu_temp) {
             warn!("{}", e);
@@ -136,29 +128,10 @@ fn main() -> Result<(), Box<dyn Error>> {
             continue;
         }
         
-        let ip_info = (interface.name.clone(), interface.ip.to_string(), interface.ip.octets());
-        let (interface_phys, interface_numvlan) = interface.display_parts();
-        
-        // Log values we're about to display for debugging
-        debug!(
-            "Display values: ip:{}, interface:{}, phys:{}, vlan:{}, octets:{:?}, cpu:{}, temp:{}, ram:{}, disk:{}",
-            ip_info.1, ip_info.0, interface_phys, interface_numvlan, ip_info.2, 
-            cpu_usage, cpu_temp_str, ram_usage, disk_usage
-        );
-        
-        // Update the display with consistent error handling
-        match poe_disp.update_display(
-            &ip_info,
-            &ip_info.1,      // IP Address e.g., 192.168.0.1
-            &ip_info.0,      // Interface e.g., eth0.99
-            &interface_phys,  // Physical interface e.g., eth0
-            &interface_numvlan, // VLAN interface e.g., 99
-            &ip_info.2,      // IP Octets e.g., [192, 168, 0, 1]
-            &cpu_usage,
-            &cpu_temp_str,       // CPU temperature
-            &ram_usage,
-            &disk_usage,
-        ) {
+        let values = DisplayValues::new(&interface, &m);
+        debug!("Display values: {:?}", values);
+
+        match poe_disp.update_display(&values) {
             Ok(_) => {
                 trace!("Display updated successfully");
                 // Slow down the update rate to reduce flickering

@@ -1,6 +1,6 @@
 use std::process::Command;
-use crate::display_types::{DisplayConfig, Orientation, ElementConfig, PositionConfig, 
-                           PositionValue, ComponentConfig, ValueConfig, PrefixSuffixConfig};
+use super::config::{DisplayConfig, Orientation, ElementConfig, PositionConfig,
+                    PositionValue, ComponentConfig, ValueConfig};
 
 pub fn get_default_display_config() -> DisplayConfig {
     // Get hostname for the first line
