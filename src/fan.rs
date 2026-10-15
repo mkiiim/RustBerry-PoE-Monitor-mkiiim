@@ -80,7 +80,7 @@ fn format_temp(cpu_temp: Option<f32>) -> String {
 
 /// The fan starts on unless the CPU is known to be at or below `temp_off`.
 fn initial_fan_state(cpu_temp: Option<f32>, temp_off: f32) -> bool {
-    cpu_temp.map_or(true, |t| t > temp_off)
+    cpu_temp.is_none_or(|t| t > temp_off)
 }
 
 /// Returns the state to switch the fan to, or `None` to leave it as it is.

@@ -19,17 +19,17 @@ type Display = Ssd1306<I2CInterface<I2cdev>, DisplaySize128x32, BufferedGraphics
 
 #[derive(Debug)]
 pub enum DisplayError {
-    IoError(std::io::Error),
-    JsonError(serde_json::Error),
-    DisplayError(display_interface::DisplayError),
+    Io(std::io::Error),
+    Json(serde_json::Error),
+    Interface(display_interface::DisplayError),
 }
 
 impl std::fmt::Display for DisplayError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            DisplayError::IoError(e) => write!(f, "IO error: {}", e),
-            DisplayError::JsonError(e) => write!(f, "JSON error: {}", e),
-            DisplayError::DisplayError(e) => write!(f, "Display error: {:?}", e),
+            DisplayError::Io(e) => write!(f, "IO error: {}", e),
+            DisplayError::Json(e) => write!(f, "JSON error: {}", e),
+            DisplayError::Interface(e) => write!(f, "Display error: {:?}", e),
         }
     }
 }
@@ -38,19 +38,19 @@ impl std::error::Error for DisplayError {}
 
 impl From<std::io::Error> for DisplayError {
     fn from(error: std::io::Error) -> Self {
-        DisplayError::IoError(error)
+        DisplayError::Io(error)
     }
 }
 
 impl From<serde_json::Error> for DisplayError {
     fn from(error: serde_json::Error) -> Self {
-        DisplayError::JsonError(error)
+        DisplayError::Json(error)
     }
 }
 
 impl From<display_interface::DisplayError> for DisplayError {
     fn from(error: display_interface::DisplayError) -> Self {
-        DisplayError::DisplayError(error)
+        DisplayError::Interface(error)
     }
 }
 

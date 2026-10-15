@@ -39,7 +39,7 @@ impl InterfaceRotator {
 
     /// Returns the next address to display, refreshing the list first if it is stale.
     pub fn next(&mut self) -> InterfaceAddr {
-        let stale = self.last_refresh.map_or(true, |t| t.elapsed() >= self.refresh_interval);
+        let stale = self.last_refresh.is_none_or(|t| t.elapsed() >= self.refresh_interval);
         if stale {
             self.set_addrs(collect_interface_addrs());
             self.last_refresh = Some(Instant::now());
@@ -212,8 +212,8 @@ mod tests {
 
     #[test]
     fn sorts_by_interface_number() {
-        let mut addrs = vec![addr("wlan1", "1.1.1.1"), addr("eth1", "1.1.1.2"),
-                             addr("wlan0", "1.1.1.3"), addr("eth0.5", "1.1.1.4")];
+        let mut addrs = [addr("wlan1", "1.1.1.1"), addr("eth1", "1.1.1.2"),
+                         addr("wlan0", "1.1.1.3"), addr("eth0.5", "1.1.1.4")];
         addrs.sort_by(compare_interfaces);
         let names: Vec<&str> = addrs.iter().map(|a| a.name.as_str()).collect();
         assert_eq!(names, ["eth0.5", "eth1", "wlan0", "wlan1"]);

@@ -48,7 +48,7 @@ impl MetricsCollector {
         self.sys.refresh_cpu_usage();
         self.sys.refresh_memory();
 
-        let disk_due = self.last_disk_update.map_or(true, |t| t.elapsed() >= self.disk_interval);
+        let disk_due = self.last_disk_update.is_none_or(|t| t.elapsed() >= self.disk_interval);
         if disk_due {
             self.last_disk_update = Some(Instant::now());
             self.disk_usage = disk_usage();
