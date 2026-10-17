@@ -108,10 +108,13 @@ pub struct TextRun {
     pub text: String,
     pub font: Font,
     pub position: Point,
+    pub width: i32,
 }
 
 /// Works out what to draw where. Each element's components (prefix, value,
 /// suffix) are placed side by side, and the element is aligned as a whole.
+/// Aligned text that would start left of the screen starts at the left edge
+/// instead, so its beginning stays readable.
 pub fn layout(config: &DisplayConfig, values: &DisplayValues) -> Vec<TextRun> {
     let mut runs = Vec::new();
 
@@ -122,16 +125,24 @@ pub fn layout(config: &DisplayConfig, values: &DisplayValues) -> Vec<TextRun> {
         let total_width: i32 = parts.iter().map(|(text, font)| text_width(text, font)).sum();
 
         let mut x = x_position(&element.position.x, total_width, config.width);
+        if x < 0 && !matches!(element.position.x, XPosition::Pixel(_)) {
+            x = 0;
+        }
         let y = element.position.y;
         trace!("Element {}: x={}, y={}, width={}", element.id, x, y, total_width);
 
         for (text, font) in parts {
             let width = text_width(&text, &font);
-            runs.push(TextRun { text, font, position: Point::new(x, y) });
+            runs.push(TextRun { text, font, position: Point::new(x, y), width });
             x += width;
         }
     }
     runs
+}
+
+/// The first run that doesn't fit within `display_width`, if any.
+pub fn off_screen(runs: &[TextRun], display_width: i32) -> Option<&TextRun> {
+    runs.iter().find(|run| run.position.x < 0 || run.position.x + run.width > display_width)
 }
 
 fn component_parts(component: &ComponentConfig, values: &DisplayValues) -> Vec<(String, Font)> {
@@ -241,6 +252,27 @@ mod tests {
         let runs = layout(&config(json), &values());
         // 15 + 24 + 5 = 44px wide, centred: (128 - 44) / 2 = 42
         assert_eq!(summary(&runs), vec![("T: ", 42, 10), ("48.2", 57, 10), ("C", 81, 10)]);
+    }
+
+    #[test]
+    fn keeps_start_of_wide_text_on_screen() {
+        let wide = DisplayValues {
+            interface: "eth0.99".to_string(), ip_octets: [192, 168, 100, 200], ..values()
+        };
+        let config = config(include_str!("../../etc_rustberry-poe-monitor/landscape.json"));
+        let runs = layout(&config, &wide);
+        // "eth0.99: " is 9 * 5px and "192.168.100.200" 15 * 6px, 135px in all
+        assert_eq!((runs[0].text.as_str(), runs[0].position.x), ("eth0.99", 0));
+        let last = off_screen(&runs, config.width).unwrap();
+        assert_eq!((last.text.as_str(), last.position.x), ("200", 117));
+
+        // The shipped landscape layout puts "%DISK" at 103, so "DISK" ends at 129
+        let runs = layout(&config, &values());
+        let disk = off_screen(&runs, config.width).unwrap();
+        assert_eq!((disk.text.as_str(), disk.position.x + disk.width), ("DISK", 129));
+
+        let portrait = self::config(include_str!("../../etc_rustberry-poe-monitor/portrait.json"));
+        assert!(off_screen(&layout(&portrait, &values()), portrait.width).is_none());
     }
 
     #[test]

@@ -9,11 +9,11 @@ use linux_embedded_hal::I2cdev;
 use ssd1306::{prelude::*, I2CDisplayInterface, Ssd1306, mode::BufferedGraphicsMode};
 use ssd1306::mode::DisplayConfig as SsdDisplayConfig;
 use embedded_graphics::{pixelcolor::BinaryColor, prelude::*, text::Text};
-use log::{debug, error, info};
+use log::{debug, error, info, warn};
 
 use config::DisplayConfig;
 use default_config::config_error_display_config;
-use layout::layout;
+use layout::{layout, off_screen};
 
 type Display = Ssd1306<I2CInterface<I2cdev>, DisplaySize128x32, BufferedGraphicsMode<DisplaySize128x32>>;
 
@@ -64,6 +64,7 @@ pub fn check_config(path: &str) -> Result<(), DisplayError> {
 pub struct PoeDisplay {
     display: Display,
     config: DisplayConfig,
+    overflow_warned: bool,
 }
 
 impl PoeDisplay {
@@ -94,7 +95,7 @@ impl PoeDisplay {
         let display = initialize_display(i2c, &config)?;
         info!("Display initialized successfully");
 
-        Ok(PoeDisplay { display, config })
+        Ok(PoeDisplay { display, config, overflow_warned: false })
     }
 
     /// Blanks the screen and switches the panel off. The fan and everything
@@ -115,7 +116,14 @@ impl PoeDisplay {
     /// Redraws the whole screen with `values`.
     pub fn update_display(&mut self, values: &DisplayValues) -> Result<(), DisplayError> {
         self.display.clear(BinaryColor::Off)?;
-        for run in layout(&self.config, values) {
+        let runs = layout(&self.config, values);
+        if !self.overflow_warned {
+            if let Some(run) = off_screen(&runs, self.config.width) {
+                warn!("\"{}\" doesn't fit on the {}px wide display", run.text, self.config.width);
+                self.overflow_warned = true;
+            }
+        }
+        for run in runs {
             Text::new(&run.text, run.position, run.font).draw(&mut self.display)?;
         }
         self.display.flush()?;
