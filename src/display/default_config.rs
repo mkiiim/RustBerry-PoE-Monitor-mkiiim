@@ -1,63 +1,62 @@
 use std::process::Command;
-use super::config::{DisplayConfig, Orientation, ElementConfig, PositionConfig,
-                    PositionValue, ComponentConfig, ValueConfig};
+use super::config::{Align, ComponentConfig, DisplayConfig, ElementConfig, Orientation,
+                    PositionConfig, ValueConfig, XPosition};
+use super::fonts::FontName;
 
-pub fn get_default_display_config() -> DisplayConfig {
-    // Get hostname for the first line
-    let hostname = get_system_hostname();
-    
-    // Create a simple two-line display with hostname and "Hello World!"
+/// Layout shown when the config file can't be loaded: the hostname and
+/// "CONFIG ERROR", so the problem is visible when the screen is woken.
+pub fn config_error_display_config() -> DisplayConfig {
+    error_display_config(&get_system_hostname())
+}
+
+fn error_display_config(hostname: &str) -> DisplayConfig {
     DisplayConfig {
-        orientation: Orientation::Landscape,  // Default to landscape orientation
-        width: 128,                          // Standard width
-        height: 32,                          // Standard height
+        orientation: Orientation::Landscape,
+        width: 128,
+        height: 32,
         elements: vec![
-            // Hostname on the first line
-            ElementConfig {
-                id: "hostname".to_string(),
-                position: PositionConfig {
-                    x: PositionValue::Text("center".to_string()),
-                    y: PositionValue::Number(8),  // Position for first line
-                },
-                components: vec![
-                    ComponentConfig {
-                        value: ValueConfig {
-                            text: hostname,
-                            font: "FONT_6X12".to_string(),
-                        },
-                        prefix: None,
-                        suffix: None,
-                    },
-                ],
-            },
-            // Hello World on the second line
-            ElementConfig {
-                id: "hello_world".to_string(),
-                position: PositionConfig {
-                    x: PositionValue::Text("center".to_string()),
-                    y: PositionValue::Number(22),  // Position for second line
-                },
-                components: vec![
-                    ComponentConfig {
-                        value: ValueConfig {
-                            text: "Hello World!".to_string(),
-                            font: "PCSENIOR8_STYLE".to_string(),
-                        },
-                        prefix: None,
-                        suffix: None,
-                    },
-                ],
-            },
+            centred_line("hostname", 8, hostname, FontName::Font6x12),
+            centred_line("config_error", 22, "CONFIG ERROR", FontName::PcSenior8),
         ],
     }
 }
 
+fn centred_line(id: &str, y: i32, text: &str, font: FontName) -> ElementConfig {
+    ElementConfig {
+        id: id.to_string(),
+        position: PositionConfig { x: XPosition::Screen(Align::Center), y },
+        components: vec![ComponentConfig {
+            value: ValueConfig { text: text.to_string(), font },
+            prefix: None,
+            suffix: None,
+        }],
+    }
+}
+
 fn get_system_hostname() -> String {
-    // Try to get the system hostname
     match Command::new("hostname").output() {
         Ok(output) if output.status.success() => {
             String::from_utf8_lossy(&output.stdout).trim().to_string()
         },
         _ => "RustBerry".to_string(),  // Default if hostname command fails
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::display::layout::{layout, DisplayValues};
+
+    #[test]
+    fn shows_hostname_and_error() {
+        let values = DisplayValues {
+            interface: String::new(), interface_phys: String::new(), interface_numvlan: String::new(),
+            ip: String::new(), ip_octets: [0; 4], cpu_usage: String::new(), cpu_temp: String::new(),
+            ram_usage: String::new(), disk_usage: String::new(),
+        };
+        let runs = layout(&error_display_config("rpi-pihole2"), &values);
+        let runs: Vec<_> = runs.iter().map(|r| (r.text.as_str(), r.position.x, r.position.y)).collect();
+        // 11 * 6px and 12 * 8px wide, centred on 128px
+        assert_eq!(runs, vec![("rpi-pihole2", 31, 8), ("CONFIG ERROR", 16, 22)]);
     }
 }

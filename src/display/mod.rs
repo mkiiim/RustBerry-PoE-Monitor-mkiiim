@@ -9,10 +9,10 @@ use linux_embedded_hal::I2cdev;
 use ssd1306::{prelude::*, I2CDisplayInterface, Ssd1306, mode::BufferedGraphicsMode};
 use ssd1306::mode::DisplayConfig as SsdDisplayConfig;
 use embedded_graphics::{pixelcolor::BinaryColor, prelude::*, text::Text};
-use log::{debug, error, info, warn};
+use log::{debug, error, info};
 
 use config::DisplayConfig;
-use default_config::get_default_display_config;
+use default_config::config_error_display_config;
 use layout::layout;
 
 type Display = Ssd1306<I2CInterface<I2cdev>, DisplaySize128x32, BufferedGraphicsMode<DisplaySize128x32>>;
@@ -22,6 +22,7 @@ pub enum DisplayError {
     Io(std::io::Error),
     Json(serde_json::Error),
     Interface(display_interface::DisplayError),
+    Config(String),
 }
 
 impl std::fmt::Display for DisplayError {
@@ -30,6 +31,7 @@ impl std::fmt::Display for DisplayError {
             DisplayError::Io(e) => write!(f, "IO error: {}", e),
             DisplayError::Json(e) => write!(f, "JSON error: {}", e),
             DisplayError::Interface(e) => write!(f, "Display error: {:?}", e),
+            DisplayError::Config(e) => write!(f, "Config error: {}", e),
         }
     }
 }
@@ -54,14 +56,19 @@ impl From<display_interface::DisplayError> for DisplayError {
     }
 }
 
+/// Loads the config at `path` without touching the display, for `--check-config`.
+pub fn check_config(path: &str) -> Result<(), DisplayError> {
+    DisplayConfig::load(path).map(|_| ())
+}
+
 pub struct PoeDisplay {
     display: Display,
     config: DisplayConfig,
 }
 
 impl PoeDisplay {
-    /// Opens the OLED and loads the layout from `config_path`, falling back
-    /// to a built-in layout if the file cannot be read.
+    /// Opens the OLED and loads the layout from `config_path`. If the file
+    /// can't be loaded, the screen shows the hostname and "CONFIG ERROR" instead.
     pub fn new(config_path: &str) -> Result<Self, Box<dyn std::error::Error>> {
         debug!("Initializing display with config path: {}", config_path);
 
@@ -71,9 +78,8 @@ impl PoeDisplay {
                 config
             },
             Err(e) => {
-                warn!("Failed to load config from {}: {}", config_path, e);
-                warn!("Using default display configuration instead");
-                get_default_display_config()
+                error!("Failed to load config from {}: {}", config_path, e);
+                config_error_display_config()
             }
         };
 

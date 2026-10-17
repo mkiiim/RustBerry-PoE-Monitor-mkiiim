@@ -43,6 +43,10 @@ struct Args {
     /// How long /wake keeps the display on, in seconds
     #[arg(long, default_value_t = 300)]
     wake_seconds: u64,
+
+    /// Check the --config file and exit, without touching the display or fan
+    #[arg(long)]
+    check_config: bool,
 }
 
 // How often the interface list is re-read from the system
@@ -68,7 +72,20 @@ fn main() -> Result<(), Box<dyn Error>> {
     let args = Args::parse();
     debug!("Using config file: {}", args.config);
 
-    // Initialize display with potential fallback to default config
+    if args.check_config {
+        match display::check_config(&args.config) {
+            Ok(()) => {
+                println!("{}: OK", args.config);
+                return Ok(());
+            },
+            Err(e) => {
+                eprintln!("{}: {}", args.config, e);
+                std::process::exit(1);
+            }
+        }
+    }
+
+    // Initialize display; a bad config shows "CONFIG ERROR" instead of failing
     let mut poe_disp = match PoeDisplay::new(&args.config) {
         Ok(disp) => {
             info!("Display initialized with configuration from: {}", args.config);

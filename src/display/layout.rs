@@ -3,8 +3,8 @@ use log::trace;
 
 use crate::metrics::Metrics;
 use crate::network::InterfaceAddr;
-use super::config::{ComponentConfig, DisplayConfig, PositionValue};
-use super::fonts::{font_by_name, text_width, Font};
+use super::config::{Align, ComponentConfig, DisplayConfig, XPosition};
+use super::fonts::{text_width, Font};
 
 /// The values a config can refer to by name, formatted for display.
 #[derive(Clone, Debug, PartialEq)]
@@ -39,23 +39,57 @@ impl DisplayValues {
         }
     }
 
-    /// Resolves a value name from the config; any other text is shown as is.
-    fn resolve(&self, name: &str) -> String {
+    fn get(&self, name: ValueName) -> String {
         match name {
-            "interface_phys" => self.interface_phys.clone(),
-            "interface_numvlan" => self.interface_numvlan.clone(),
-            "ip_info.0" => self.interface.clone(),
-            "ip_info.1" => self.ip.clone(),
-            "ip_octets(0)" => self.ip_octets[0].to_string(),
-            "ip_octets(1)" => self.ip_octets[1].to_string(),
-            "ip_octets(2)" => self.ip_octets[2].to_string(),
-            "ip_octets(3)" => self.ip_octets[3].to_string(),
-            "cpu_usage" => self.cpu_usage.clone(),
-            "cpu_temp" => self.cpu_temp.clone(),
-            "ram_usage" => self.ram_usage.clone(),
-            "disk_usage" => self.disk_usage.clone(),
-            text => text.to_string(),
+            ValueName::InterfacePhys => self.interface_phys.clone(),
+            ValueName::InterfaceNumVlan => self.interface_numvlan.clone(),
+            ValueName::Interface => self.interface.clone(),
+            ValueName::Ip => self.ip.clone(),
+            ValueName::IpOctet(i) => self.ip_octets[i].to_string(),
+            ValueName::CpuUsage => self.cpu_usage.clone(),
+            ValueName::CpuTemp => self.cpu_temp.clone(),
+            ValueName::RamUsage => self.ram_usage.clone(),
+            ValueName::DiskUsage => self.disk_usage.clone(),
         }
+    }
+
+    /// Resolves a value name from the config; any other text is shown as is.
+    fn resolve(&self, text: &str) -> String {
+        ValueName::parse(text).map_or_else(|| text.to_string(), |name| self.get(name))
+    }
+}
+
+/// The value names a config can use in place of literal text.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum ValueName {
+    InterfacePhys,
+    InterfaceNumVlan,
+    Interface,
+    Ip,
+    IpOctet(usize),
+    CpuUsage,
+    CpuTemp,
+    RamUsage,
+    DiskUsage,
+}
+
+impl ValueName {
+    pub fn parse(text: &str) -> Option<Self> {
+        Some(match text {
+            "interface_phys" => ValueName::InterfacePhys,
+            "interface_numvlan" => ValueName::InterfaceNumVlan,
+            "ip_info.0" => ValueName::Interface,
+            "ip_info.1" => ValueName::Ip,
+            "ip_octets(0)" => ValueName::IpOctet(0),
+            "ip_octets(1)" => ValueName::IpOctet(1),
+            "ip_octets(2)" => ValueName::IpOctet(2),
+            "ip_octets(3)" => ValueName::IpOctet(3),
+            "cpu_usage" => ValueName::CpuUsage,
+            "cpu_temp" => ValueName::CpuTemp,
+            "ram_usage" => ValueName::RamUsage,
+            "disk_usage" => ValueName::DiskUsage,
+            _ => return None,
+        })
     }
 }
 
@@ -88,7 +122,7 @@ pub fn layout(config: &DisplayConfig, values: &DisplayValues) -> Vec<TextRun> {
         let total_width: i32 = parts.iter().map(|(text, font)| text_width(text, font)).sum();
 
         let mut x = x_position(&element.position.x, total_width, config.width);
-        let y = y_position(&element.position.y);
+        let y = element.position.y;
         trace!("Element {}: x={}, y={}, width={}", element.id, x, y, total_width);
 
         for (text, font) in parts {
@@ -103,36 +137,30 @@ pub fn layout(config: &DisplayConfig, values: &DisplayValues) -> Vec<TextRun> {
 fn component_parts(component: &ComponentConfig, values: &DisplayValues) -> Vec<(String, Font)> {
     let mut parts = Vec::with_capacity(3);
     if let Some(prefix) = &component.prefix {
-        parts.push((prefix.text.clone(), font_by_name(&prefix.font)));
+        parts.push((prefix.text.clone(), prefix.font.style()));
     }
-    parts.push((values.resolve(&component.value.text), font_by_name(&component.value.font)));
+    parts.push((values.resolve(&component.value.text), component.value.font.style()));
     if let Some(suffix) = &component.suffix {
-        parts.push((suffix.text.clone(), font_by_name(&suffix.font)));
+        parts.push((suffix.text.clone(), suffix.font.style()));
     }
     parts
 }
 
-fn x_position(x: &PositionValue, width: i32, display_width: i32) -> i32 {
-    match x {
-        PositionValue::Text(align) => match align.as_str() {
-            "center" => (display_width - width) / 2,
-            "right" => display_width - width,
-            _ => 0,
-        },
-        PositionValue::Number(x) => *x,
-        PositionValue::Relative { align, anchor } => match align.as_str() {
-            "center" => anchor - width / 2,
-            "right" => anchor - width,
-            _ => *anchor,
-        },
+fn x_position(x: &XPosition, width: i32, display_width: i32) -> i32 {
+    match *x {
+        XPosition::Screen(align) => align_at(align, 0, display_width, width),
+        XPosition::Pixel(x) => x,
+        XPosition::Anchor { align, anchor } => align_at(align, anchor, 0, width),
     }
 }
 
-fn y_position(y: &PositionValue) -> i32 {
-    match y {
-        PositionValue::Text(_) => 0,
-        PositionValue::Number(y) => *y,
-        PositionValue::Relative { anchor, .. } => *anchor,
+/// Start of text `width` wide, placed relative to `left` (left-aligned),
+/// `left + span / 2` (centred) or `left + span` (right-aligned).
+fn align_at(align: Align, left: i32, span: i32, width: i32) -> i32 {
+    match align {
+        Align::Left => left,
+        Align::Center => left + (span - width) / 2,
+        Align::Right => left + span - width,
     }
 }
 
@@ -155,7 +183,7 @@ mod tests {
     }
 
     fn config(json: &str) -> DisplayConfig {
-        serde_json::from_str(json).unwrap()
+        DisplayConfig::parse(json).unwrap()
     }
 
     fn summary(runs: &[TextRun]) -> Vec<(&str, i32, i32)> {
@@ -217,13 +245,13 @@ mod tests {
 
     #[test]
     fn aligns_elements() {
-        assert_eq!(x_position(&PositionValue::Text("left".into()), 20, 128), 0);
-        assert_eq!(x_position(&PositionValue::Text("right".into()), 20, 128), 108);
-        assert_eq!(x_position(&PositionValue::Text("center".into()), 20, 128), 54);
-        assert_eq!(x_position(&PositionValue::Number(7), 20, 128), 7);
-        assert_eq!(x_position(&PositionValue::Relative { align: "center".into(), anchor: 64 }, 20, 128), 54);
-        assert_eq!(y_position(&PositionValue::Text("incrementing".into())), 0);
-        assert_eq!(y_position(&PositionValue::Relative { align: "left".into(), anchor: 9 }), 9);
+        assert_eq!(x_position(&XPosition::Screen(Align::Left), 20, 128), 0);
+        assert_eq!(x_position(&XPosition::Screen(Align::Right), 20, 128), 108);
+        assert_eq!(x_position(&XPosition::Screen(Align::Center), 20, 128), 54);
+        assert_eq!(x_position(&XPosition::Pixel(7), 20, 128), 7);
+        assert_eq!(x_position(&XPosition::Anchor { align: Align::Left, anchor: 64 }, 20, 128), 64);
+        assert_eq!(x_position(&XPosition::Anchor { align: Align::Center, anchor: 64 }, 20, 128), 54);
+        assert_eq!(x_position(&XPosition::Anchor { align: Align::Right, anchor: 64 }, 20, 128), 44);
     }
 
     #[test]

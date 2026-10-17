@@ -29,6 +29,7 @@ This tool provides real-time monitoring of your Raspberry Pi's system statistics
       - [Dynamic Variables](#dynamic-variables)
       - [Available Fonts](#available-fonts)
       - [Examples](#examples)
+      - [Checking a Configuration](#checking-a-configuration)
   - [🛠️ Building](#️-building)
     - [Prerequisites](#prerequisites)
     - [Building for Raspberry Pi](#building-for-raspberry-pi)
@@ -181,9 +182,9 @@ Each element represents a piece of information on the display:
 }
 ```
 
-Positioning supports three formats:
+`y` is the text baseline in pixels from the top. `x` supports three formats:
 - Text values: `"x": "center"` (also `"left"` or `"right"`)
-- Numeric values: `"y": 10` (exact pixel position)
+- Numeric values: `"x": 10` (exact pixel position)
 - Relative positioning:
   ```json
   "x": {
@@ -215,7 +216,7 @@ Components define the actual content to render:
 
 #### Dynamic Variables
 
-You can use these dynamic variables in the `text` field:
+You can use these dynamic variables in the `text` field of a `value`. Any other text is shown as is:
 
 | Variable | Description |
 |----------|-------------|
@@ -228,6 +229,8 @@ You can use these dynamic variables in the `text` field:
 | `cpu_temp` | CPU temperature in Celsius |
 | `ram_usage` | RAM usage percentage |
 | `disk_usage` | Disk usage percentage |
+
+Usage and temperature are shown with one decimal below 100 and without one from 100 up, so they stay four characters wide. A temperature that can't be read is shown as `--`.
 
 #### Available Fonts
 
@@ -286,9 +289,19 @@ Display CPU usage with percentage sign:
 }
 ```
 
-If no json display configuration file is found, the system uses a default configuration showing the hostname and "Hello World!" message.
+#### Checking a Configuration
 
-<img src="docs/IMG_4549 Medium.png" alt="no json file" width="300">
+The configuration is checked when it is loaded. An unknown field, font or alignment, or a misspelled variable such as `cpu_tmep`, is an error rather than being ignored or shown as text. Lowercase text with an underscore is treated as a variable name, so it must be one of the variables above.
+
+If the file is missing or invalid, the error is logged and the display shows the hostname and "CONFIG ERROR". Fan control keeps running.
+
+To check a file before restarting the service:
+
+```bash
+rustberry-poe-monitor --check-config --config /etc/rustberry-poe-monitor/portrait.json
+```
+
+It prints `OK` or the problem with its line and column, and exits with status 0 or 1.
 
 ## 🛠️ Building
 

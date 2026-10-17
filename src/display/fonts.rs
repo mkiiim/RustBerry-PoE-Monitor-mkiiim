@@ -5,6 +5,7 @@ use embedded_graphics::{
     prelude::*
 };
 use profont::{PROFONT_12_POINT, PROFONT_9_POINT};
+use serde::Deserialize;
 
 pub type Font = MonoTextStyle<'static, BinaryColor>;
 
@@ -48,15 +49,30 @@ pub const PCSENIOR8_STYLE: Font = MonoTextStyleBuilder::new()
     .text_color(BinaryColor::On)
     .build();
 
-/// Looks up a font by the name used in the JSON config. Unknown names fall back to `FONT_5X8`.
-pub fn font_by_name(name: &str) -> Font {
-    match name {
-        "FONT_5X8" => FONT_5X8,
-        "FONT_6X12" => FONT_6X12,
-        "PCSENIOR8_STYLE" => PCSENIOR8_STYLE,
-        "PROFONT12" => PROFONT12,
-        "PROFONT9" => PROFONT9,
-        _ => FONT_5X8,
+/// Font names as used in the JSON config.
+#[derive(Deserialize, Clone, Copy, Debug, PartialEq)]
+pub enum FontName {
+    #[serde(rename = "FONT_5X8")]
+    Font5x8,
+    #[serde(rename = "FONT_6X12")]
+    Font6x12,
+    #[serde(rename = "PCSENIOR8_STYLE")]
+    PcSenior8,
+    #[serde(rename = "PROFONT12")]
+    ProFont12,
+    #[serde(rename = "PROFONT9")]
+    ProFont9,
+}
+
+impl FontName {
+    pub fn style(self) -> Font {
+        match self {
+            FontName::Font5x8 => FONT_5X8,
+            FontName::Font6x12 => FONT_6X12,
+            FontName::PcSenior8 => PCSENIOR8_STYLE,
+            FontName::ProFont12 => PROFONT12,
+            FontName::ProFont9 => PROFONT9,
+        }
     }
 }
 
@@ -77,10 +93,12 @@ mod tests {
 
     #[test]
     fn looks_up_fonts_by_name() {
-        assert_eq!(char_width(&font_by_name("FONT_6X12")), 6);
-        assert_eq!(char_width(&font_by_name("FONT_5X8")), 5);
-        assert_eq!(char_width(&font_by_name("PCSENIOR8_STYLE")), 8);
-        assert_eq!(char_width(&font_by_name("no-such-font")), 5);
+        let width = |name: &str| char_width(&serde_json::from_str::<FontName>(name).unwrap().style());
+        assert_eq!(width(r#""FONT_6X12""#), 6);
+        assert_eq!(width(r#""FONT_5X8""#), 5);
+        assert_eq!(width(r#""PCSENIOR8_STYLE""#), 8);
+        assert_eq!(width(r#""PROFONT9""#), 6);
+        assert!(serde_json::from_str::<FontName>(r#""no-such-font""#).is_err());
     }
 
     #[test]
