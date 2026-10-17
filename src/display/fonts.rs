@@ -81,10 +81,9 @@ pub fn char_width(font: &Font) -> i32 {
     font.font.character_size.width as i32 + font.font.character_spacing as i32
 }
 
-/// Width of `text` in pixels. Uses the byte length, so a non-ASCII glyph
-/// such as '°' is counted as two characters.
+/// Width of `text` in pixels.
 pub fn text_width(text: &str, font: &Font) -> i32 {
-    text.len() as i32 * char_width(font)
+    text.chars().count() as i32 * char_width(font)
 }
 
 #[cfg(test)]
@@ -105,5 +104,6 @@ mod tests {
     fn measures_text() {
         assert_eq!(text_width("12.5", &FONT_6X12), 24);
         assert_eq!(text_width("", &FONT_6X12), 0);
+        assert_eq!(text_width("48.2°C", &PCSENIOR8_STYLE), 48);
     }
 }
