@@ -32,10 +32,10 @@ impl DisplayValues {
             interface_numvlan,
             ip: interface.ip.to_string(),
             ip_octets: interface.ip.octets(),
-            cpu_usage: format!("{:.1}", metrics.cpu_usage),
-            cpu_temp: format!("{:.1}", metrics.cpu_temp.unwrap_or(0.0)),
-            ram_usage: format!("{:.1}", metrics.ram_usage),
-            disk_usage: format!("{:.1}", metrics.disk_usage),
+            cpu_usage: format_reading(metrics.cpu_usage.into()),
+            cpu_temp: metrics.cpu_temp.map_or_else(|| "--".to_string(), |t| format_reading(t.into())),
+            ram_usage: format_reading(metrics.ram_usage),
+            disk_usage: format_reading(metrics.disk_usage),
         }
     }
 
@@ -56,6 +56,16 @@ impl DisplayValues {
             "disk_usage" => self.disk_usage.clone(),
             text => text.to_string(),
         }
+    }
+}
+
+/// Formats a reading with one decimal, dropping it from 100 up so the value
+/// stays four characters wide, e.g. "99.9" then "100".
+fn format_reading(value: f64) -> String {
+    if value >= 99.95 {
+        format!("{:.0}", value)
+    } else {
+        format!("{:.1}", value)
     }
 }
 
@@ -159,7 +169,22 @@ mod tests {
         assert_eq!(DisplayValues::new(&interface, &metrics), values());
 
         let no_temp = Metrics { cpu_temp: None, ..metrics };
-        assert_eq!(DisplayValues::new(&interface, &no_temp).cpu_temp, "0.0");
+        assert_eq!(DisplayValues::new(&interface, &no_temp).cpu_temp, "--");
+    }
+
+    #[test]
+    fn readings_stay_four_characters_wide() {
+        assert_eq!(format_reading(0.0), "0.0");
+        assert_eq!(format_reading(99.94), "99.9");
+        assert_eq!(format_reading(99.95), "100");
+        assert_eq!(format_reading(100.0), "100");
+    }
+
+    #[test]
+    fn full_cpu_fits_in_portrait() {
+        let full = DisplayValues { cpu_usage: format_reading(100.0), ..values() };
+        let runs = layout(&config(include_str!("../../etc_rustberry-poe-monitor/portrait.json")), &full);
+        assert_eq!((runs[10].text.as_str(), runs[10].position.x), ("100", 6));
     }
 
     #[test]
