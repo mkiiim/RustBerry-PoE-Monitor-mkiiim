@@ -47,6 +47,14 @@ struct Args {
     /// Check the --config file and exit, without touching the display or fan
     #[arg(long)]
     check_config: bool,
+
+    /// Draw the --config layout to this PNG file and exit, without touching the display or fan
+    #[arg(long, value_name = "PATH")]
+    render: Option<String>,
+
+    /// With --render, use fixed sample values instead of this machine's readings
+    #[arg(long, requires = "render")]
+    sample: bool,
 }
 
 // How often the interface list is re-read from the system
@@ -76,6 +84,20 @@ fn main() -> Result<(), Box<dyn Error>> {
         match display::check_config(&args.config) {
             Ok(()) => {
                 println!("{}: OK", args.config);
+                return Ok(());
+            },
+            Err(e) => {
+                eprintln!("{}: {}", args.config, e);
+                std::process::exit(1);
+            }
+        }
+    }
+
+    if let Some(out) = &args.render {
+        let values = if args.sample { DisplayValues::sample() } else { current_values() };
+        match display::render_png(&args.config, &values, out) {
+            Ok(()) => {
+                println!("{}: rendered {}", out, args.config);
                 return Ok(());
             },
             Err(e) => {
@@ -187,4 +209,14 @@ fn main() -> Result<(), Box<dyn Error>> {
             }
         }
     }
+}
+
+/// This machine's current readings, for `--render`.
+fn current_values() -> DisplayValues {
+    let mut metrics = MetricsCollector::new(DISK_REFRESH_INTERVAL);
+    // CPU usage is measured between two samples
+    metrics.sample();
+    thread::sleep(sysinfo::MINIMUM_CPU_UPDATE_INTERVAL);
+    let interface = InterfaceRotator::new(INTERFACE_REFRESH_INTERVAL).next();
+    DisplayValues::new(&interface, &metrics.sample())
 }

@@ -39,6 +39,21 @@ impl DisplayValues {
         }
     }
 
+    /// Fixed values for `--render --sample`, so renders can be compared.
+    pub fn sample() -> Self {
+        DisplayValues {
+            interface: "eth0.20".to_string(),
+            interface_phys: "eth".to_string(),
+            interface_numvlan: "0.20".to_string(),
+            ip: "10.0.20.133".to_string(),
+            ip_octets: [10, 0, 20, 133],
+            cpu_usage: "12.5".to_string(),
+            cpu_temp: "48.2".to_string(),
+            ram_usage: "7.0".to_string(),
+            disk_usage: "21.4".to_string(),
+        }
+    }
+
     fn get(&self, name: ValueName) -> String {
         match name {
             ValueName::InterfacePhys => self.interface_phys.clone(),

@@ -2,6 +2,10 @@ mod config;
 mod default_config;
 mod fonts;
 mod layout;
+mod render;
+
+use std::fs::File;
+use std::io::{BufWriter, Write};
 
 pub use layout::DisplayValues;
 
@@ -13,7 +17,7 @@ use log::{debug, error, info, warn};
 
 use config::DisplayConfig;
 use default_config::config_error_display_config;
-use layout::{layout, off_screen};
+use layout::{layout, off_screen, TextRun};
 
 type Display = Ssd1306<I2CInterface<I2cdev>, DisplaySize128x32, BufferedGraphicsMode<DisplaySize128x32>>;
 
@@ -59,6 +63,27 @@ impl From<display_interface::DisplayError> for DisplayError {
 /// Loads the config at `path` without touching the display, for `--check-config`.
 pub fn check_config(path: &str) -> Result<(), DisplayError> {
     DisplayConfig::load(path).map(|_| ())
+}
+
+/// How many PNG pixels `--render` draws per display pixel.
+const RENDER_SCALE: u32 = 4;
+
+/// Draws the layout in `config_path` with `values` to a PNG at `out_path`,
+/// without touching the display, for `--render`.
+pub fn render_png(config_path: &str, values: &DisplayValues, out_path: &str) -> Result<(), Box<dyn std::error::Error>> {
+    let config = DisplayConfig::load(config_path)?;
+    let mut out = BufWriter::new(File::create(out_path)?);
+    render::render(&config, values).write_png(&mut out, RENDER_SCALE)?;
+    out.flush()?;
+    Ok(())
+}
+
+/// Draws `runs` onto the OLED, or onto a canvas for `--render`.
+fn draw_runs<D: DrawTarget<Color = BinaryColor>>(target: &mut D, runs: &[TextRun]) -> Result<(), D::Error> {
+    for run in runs {
+        Text::new(&run.text, run.position, run.font).draw(target)?;
+    }
+    Ok(())
 }
 
 pub struct PoeDisplay {
@@ -123,9 +148,7 @@ impl PoeDisplay {
                 self.overflow_warned = true;
             }
         }
-        for run in runs {
-            Text::new(&run.text, run.position, run.font).draw(&mut self.display)?;
-        }
+        draw_runs(&mut self.display, &runs)?;
         self.display.flush()?;
         Ok(())
     }

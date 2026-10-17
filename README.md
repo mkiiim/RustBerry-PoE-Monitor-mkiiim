@@ -30,6 +30,7 @@ This tool provides real-time monitoring of your Raspberry Pi's system statistics
       - [Available Fonts](#available-fonts)
       - [Examples](#examples)
       - [Checking a Configuration](#checking-a-configuration)
+      - [Previewing a Layout](#previewing-a-layout)
   - [🛠️ Building](#️-building)
     - [Prerequisites](#prerequisites)
     - [Building for Raspberry Pi](#building-for-raspberry-pi)
@@ -302,6 +303,16 @@ rustberry-poe-monitor --check-config --config /etc/rustberry-poe-monitor/portrai
 ```
 
 It prints `OK` or the problem with its line and column, and exits with status 0 or 1.
+
+#### Previewing a Layout
+
+To see a layout without waking the display or restarting the service, draw it to a PNG:
+
+```bash
+rustberry-poe-monitor --config /etc/rustberry-poe-monitor/portrait.json --render layout.png
+```
+
+The image is the display as it is read, scaled up four times, using this machine's current readings. Add `--sample` to use fixed sample values instead, so two renders can be compared.
 
 ## 🛠️ Building
 
