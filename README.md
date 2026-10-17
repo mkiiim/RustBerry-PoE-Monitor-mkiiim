@@ -1,6 +1,6 @@
 # 🦀🍇 RustBerry-PoE-Monitor
 
-[![Build](https://github.com/jackra1n/RustBerry-PoE-Monitor/actions/workflows/build.yaml/badge.svg)](https://github.com/jackra1n/RustBerry-PoE-Monitor/actions/workflows/build.yaml)
+[![Build](https://github.com/mkiiim/RustBerry-PoE-Monitor-mkiiim/actions/workflows/build.yaml/badge.svg)](https://github.com/mkiiim/RustBerry-PoE-Monitor-mkiiim/actions/workflows/build.yaml)
 ![Rust](https://img.shields.io/badge/Rust-%23000000.svg?logo=rust&logoColor=white)
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
 ![Raspi](https://img.shields.io/badge/Raspberry%20Pi-A22846?logo=Raspberry%20Pi&logoColor=white)
@@ -8,6 +8,8 @@
 RustBerry-PoE-Monitor is a Rust-based monitoring and control tool for the Raspberry Pi, specifically designed for use with the [Waveshare PoE HAT (B)](https://www.waveshare.com/wiki/PoE_HAT_(B)). 
 
 ![Example image](/docs/IMG_3890.webp)
+
+This is a fork of [jackra1n/RustBerry-PoE-Monitor](https://github.com/jackra1n/RustBerry-PoE-Monitor). It adds a screen-off mode with a wake endpoint, a reading-order layout format and stricter config checking, described below.
 
 This tool provides real-time monitoring of your Raspberry Pi's system statistics, including network interface(s), IP address(es), memory usage, CPU load, and more, displayed on the PoE HAT's OLED display. Additionally, it offers fan control to maintain optimal operating temperatures.
 
@@ -17,8 +19,9 @@ This tool provides real-time monitoring of your Raspberry Pi's system statistics
   - [📖 Table of Contents](#-table-of-contents)
   - [🌟 Features](#-features)
   - [📦 Installation](#-installation)
-    - [Easy Installation](#easy-installation)
-    - [Manual Installation](#manual-installation)
+    - [Building on the Pi](#building-on-the-pi)
+    - [Installing](#installing)
+    - [Updating](#updating)
   - [📝 Configuration](#-configuration)
     - [Fan Control Settings](#fan-control-settings)
     - [Screen Off](#screen-off)
@@ -58,18 +61,47 @@ This tool provides real-time monitoring of your Raspberry Pi's system statistics
 
 ## 📦 Installation
 
-### Easy Installation
+This fork has no prebuilt releases, so build it on the Raspberry Pi it will run on.
 
-Run the following command to install:
+### Building on the Pi
+
+Enable I2C, install Rust, then build:
+
 ```bash
-curl -sSL https://rustberry.jackra1n.com/install | sudo bash
+sudo raspi-config nonint do_i2c 0
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+git clone https://github.com/mkiiim/RustBerry-PoE-Monitor-mkiiim.git
+cd RustBerry-PoE-Monitor-mkiiim
+cargo build --release
 ```
 
-And that's it!
+### Installing
 
-### Manual Installation
+Install the binary, the layouts and the systemd service, check the layout, then start the service:
 
-Check out the [wiki page](https://github.com/jackra1n/RustBerry-PoE-Monitor/wiki/Manual-Installation) to learn how to install manually.
+```bash
+sudo install -m 755 target/release/rustberry-poe-monitor /usr/local/bin/
+sudo install -d /etc/rustberry-poe-monitor
+sudo install -m 644 etc_rustberry-poe-monitor/*.json /etc/rustberry-poe-monitor/
+sudo install -m 644 etc_systemd_system/rustberry-poe-monitor.service /etc/systemd/system/
+rustberry-poe-monitor --check-config --config /etc/rustberry-poe-monitor/portrait.json
+sudo systemctl daemon-reload
+sudo systemctl enable --now rustberry-poe-monitor
+```
+
+The service runs as the `pi` user, which needs access to I2C (the `i2c` group). Edit `User=` and `Group=` in the service file if your user is different.
+
+### Updating
+
+```bash
+git pull
+cargo build --release
+sudo install -m 755 target/release/rustberry-poe-monitor /usr/local/bin/
+rustberry-poe-monitor --check-config --config /etc/rustberry-poe-monitor/portrait.json
+sudo systemctl restart rustberry-poe-monitor
+```
+
+If the layout format has changed, install the new layouts as well, after copying any you have edited.
 
 ## 📝 Configuration
 
