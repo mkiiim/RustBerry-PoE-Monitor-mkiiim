@@ -74,6 +74,24 @@ impl FontName {
             FontName::ProFont9 => PROFONT9,
         }
     }
+
+    /// The name as written in the config, e.g. `FONT_6X12`.
+    pub fn name(self) -> &'static str {
+        match self {
+            FontName::Font5x8 => "FONT_5X8",
+            FontName::Font6x12 => "FONT_6X12",
+            FontName::PcSenior8 => "PCSENIOR8_STYLE",
+            FontName::ProFont12 => "PROFONT12",
+            FontName::ProFont9 => "PROFONT9",
+        }
+    }
+}
+
+/// Whether `font` has a glyph for `c`. Missing characters are drawn as the
+/// font's `?` glyph, so any character mapped to that glyph is missing.
+pub fn can_draw(font: &Font, c: char) -> bool {
+    let mapping = font.font.glyph_mapping;
+    c == '?' || mapping.index(c) != mapping.index('?')
 }
 
 /// Horizontal advance of one character, including the font's spacing.
@@ -105,5 +123,24 @@ mod tests {
         assert_eq!(text_width("12.5", &FONT_6X12), 24);
         assert_eq!(text_width("", &FONT_6X12), 0);
         assert_eq!(text_width("48.2°C", &PCSENIOR8_STYLE), 48);
+    }
+
+    #[test]
+    fn knows_which_characters_fonts_draw() {
+        assert!(can_draw(&FONT_5X8, 'C'));
+        assert!(can_draw(&FONT_5X8, '?'));
+        assert!(!can_draw(&FONT_5X8, '°'));
+        assert!(!can_draw(&FONT_6X12, '°'));
+        assert!(can_draw(&PROFONT12, '°'));
+        assert!(can_draw(&PCSENIOR8_STYLE, '°'));
+        assert!(!can_draw(&PCSENIOR8_STYLE, 'é'));
+    }
+
+    #[test]
+    fn names_fonts_as_in_the_config() {
+        for name in ["FONT_5X8", "FONT_6X12", "PCSENIOR8_STYLE", "PROFONT9", "PROFONT12"] {
+            let font: FontName = serde_json::from_value(serde_json::Value::from(name)).unwrap();
+            assert_eq!(font.name(), name);
+        }
     }
 }

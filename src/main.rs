@@ -15,7 +15,7 @@ mod metrics;
 use metrics::MetricsCollector;
 
 mod network;
-use network::InterfaceRotator;
+use network::{system_hostname, InterfaceRotator};
 
 mod wake;
 use wake::WakeControl;
@@ -55,6 +55,10 @@ struct Args {
     /// With --render, use fixed sample values instead of this machine's readings
     #[arg(long, requires = "render")]
     sample: bool,
+
+    /// With --render, which page of the layout to draw, from 1
+    #[arg(long, requires = "render", value_name = "N")]
+    page: Option<usize>,
 }
 
 // How often the interface list is re-read from the system
@@ -82,7 +86,10 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     if args.check_config {
         match display::check_config(&args.config) {
-            Ok(()) => {
+            Ok(warnings) => {
+                for warning in warnings {
+                    println!("{}: warning: {}", args.config, warning);
+                }
                 println!("{}: OK", args.config);
                 return Ok(());
             },
@@ -95,7 +102,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     if let Some(out) = &args.render {
         let values = if args.sample { DisplayValues::sample() } else { current_values() };
-        match display::render_png(&args.config, &values, out) {
+        match display::render_png(&args.config, args.page.unwrap_or(1), &values, out) {
             Ok(()) => {
                 println!("{}: rendered {}", out, args.config);
                 return Ok(());
@@ -148,6 +155,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         wake::spawn_server(addr, wake.clone());
     }
 
+    let hostname = system_hostname();
     let mut display_powered_off = false;
     let mut iteration_count: u64 = 0;
     let mut interfaces = InterfaceRotator::new(INTERFACE_REFRESH_INTERVAL);
@@ -183,7 +191,7 @@ fn main() -> Result<(), Box<dyn Error>> {
             continue;
         }
         
-        let values = DisplayValues::new(&interface, &m);
+        let values = DisplayValues::new(&interface, &m, &hostname);
         debug!("Display values: {:?}", values);
 
         match poe_disp.update_display(&values) {
@@ -218,5 +226,5 @@ fn current_values() -> DisplayValues {
     metrics.sample();
     thread::sleep(sysinfo::MINIMUM_CPU_UPDATE_INTERVAL);
     let interface = InterfaceRotator::new(INTERFACE_REFRESH_INTERVAL).next();
-    DisplayValues::new(&interface, &metrics.sample())
+    DisplayValues::new(&interface, &metrics.sample(), &system_hostname())
 }

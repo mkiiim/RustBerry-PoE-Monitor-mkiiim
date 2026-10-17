@@ -25,10 +25,13 @@ This tool provides real-time monitoring of your Raspberry Pi's system statistics
     - [Wake Endpoint](#wake-endpoint)
       - [Homebridge Switch](#homebridge-switch)
     - [Display Configuration](#display-configuration)
-      - [JSON Configuration Schema](#json-configuration-schema)
-      - [Dynamic Variables](#dynamic-variables)
+      - [Layout File](#layout-file)
+      - [Lines](#lines)
+      - [Rows](#rows)
+      - [Templates](#templates)
       - [Available Fonts](#available-fonts)
-      - [Examples](#examples)
+      - [Example](#example)
+      - [Upgrading from the old format](#upgrading-from-the-old-format)
       - [Checking a Configuration](#checking-a-configuration)
       - [Previewing a Layout](#previewing-a-layout)
   - [🛠️ Building](#️-building)
@@ -151,85 +154,87 @@ The application comes with two pre-configured layouts:
 |---------|---------|
 | <img src="docs/IMG_4552 Medium.png" alt="no json file" width="300"> | <img src="docs/IMG_4554 Medium.png" alt="no json file" width="300"> |
 
-The included `/etc/systemd/system/rustberry-poe-monitor.service` is defaulted to using the `landscape.json`
+The included `/etc/systemd/system/rustberry-poe-monitor.service` uses `portrait.json`, which is also the default without `--config`.
 
-#### JSON Configuration Schema
+#### Layout File
 
-The configuration file has this basic structure:
-
-```json
-{
-  "orientation": "landscape",  // or "portrait"
-  "width": 128,
-  "height": 32,
-  "elements": [
-    // Array of display elements
-  ]
-}
-```
-
-Each element represents a piece of information on the display:
+A layout file describes what is drawn, top to bottom, in reading order. Lines go down the display and rows go across it, so there are no x/y coordinates to work out:
 
 ```json
 {
-  "id": "element_name",
-  "position": {
-    "x": "center",  // or number, or relative positioning
-    "y": 10         // position from top in pixels
-  },
-  "components": [
-    // Array of text components
-  ]
+  "orientation": "portrait",
+  "font": "FONT_6X12",
+  "align": "left",
+  "leading": 9,
+  "page_seconds": 5,
+  "lines": [ ... ]
 }
 ```
 
-`y` is the text baseline in pixels from the top. `x` supports three formats:
-- Text values: `"x": "center"` (also `"left"` or `"right"`)
-- Numeric values: `"x": 10` (exact pixel position)
-- Relative positioning:
-  ```json
-  "x": {
-    "align": "right",  // "left", "center", or "right"
-    "anchor": 38       // reference pixel position
-  }
-  ```
+| Field | Description |
+|-------|-------------|
+| `orientation` | Required. `"portrait"` (32×128) or `"landscape"` (128×32), as the display is read |
+| `font` | Default font. Optional, default `FONT_6X12` |
+| `align` | Default alignment: `"left"`, `"center"` or `"right"`. Optional, default `left` |
+| `leading` | Default line spacing (see [Lines](#lines)). Optional |
+| `page_seconds` | Seconds each page is shown. Optional, default 5; only matters with several pages |
+| `lines` | The lines to draw |
+| `pages` | Instead of `lines`: a list of pages, each `{ "lines": [...] }` with optional `font`, `align` and `leading` |
 
-Pixel co-ordinate positions used for `"anchor":` values increase top-to-bottom and left-to-right . (i.e., 0,0 is at the top left corner of the screen, with respect to its `"orientation":`)
+A file has either `lines` or `pages`, not both. With several pages the display steps through them, `page_seconds` each. Unknown fields anywhere are errors.
 
-Components define the actual content to render:
+#### Lines
 
-```json
-{
-  "value": {
-    "text": "cpu_usage",  // Static text or dynamic variable
-    "font": "PCSENIOR8_STYLE"
-  },
-  "prefix": {  // Optional
-    "text": "CPU: ",
-    "font": "FONT_5X8"
-  },
-  "suffix": {  // Optional
-    "text": "%",
-    "font": "FONT_6X12"
-  }
-}
-```
+Each entry in a `lines` array is one of:
 
-#### Dynamic Variables
+| Line | Description |
+|------|-------------|
+| `"CPU {cpu_usage}"` | A text line in the inherited font and alignment |
+| `{ "text": "...", "font", "align", "leading", "dy" }` | A text line with its own settings (all optional except `text`) |
+| `{ "row": [...], "font", "align", "leading", "dy" }` | A line made of pieces placed side by side (see [Rows](#rows)) |
+| `{ "lines": [...], "font", "align", "leading" }` | A group: its settings apply to every line inside it. Not a line itself |
+| `{ "space": 2 }` | Vertical gap in pixels. May be negative to move back up |
 
-You can use these dynamic variables in the `text` field of a `value`. Any other text is shown as is:
+Each text or row line moves down by its `leading` and puts its text baseline there. `leading` is the line's own, or inherited; if none is set, it is the height of the tallest font in the line. `space` moves down (or up) by its value. `dy` shifts a line up (negative) or down when it is drawn without moving the lines after it.
 
-| Variable | Description |
-|----------|-------------|
-| `ip_info.0` | Network interface name (e.g., "eth0.99")|
-| `ip_info.1` | IP address (e.g., "192.168.0.1")|
-| `interface_phys` | Interface name, or its prefix for a VLAN interface (e.g., "eth0", or "eth" for "eth0.99") |
-| `interface_numvlan` | Interface number and VLAN for a VLAN interface (e.g., "0.99" for "eth0.99"), otherwise empty |
-| `ip_octets(0)` - `ip_octets(3)` | Individual octets of the IP address |
-| `cpu_usage` | CPU usage percentage |
-| `cpu_temp` | CPU temperature in Celsius |
-| `ram_usage` | RAM usage percentage |
-| `disk_usage` | Disk usage percentage |
+`align` places a text line, or a whole row, across the display. If centred or right-aligned text is wider than the display it starts at the left edge.
+
+`font`, `align` and `leading` are inherited from the top level to a page, group and line. A row's `font` is also the default for its pieces.
+
+#### Rows
+
+Each entry in a `row` array is one of:
+
+| Piece | Description |
+|-------|-------------|
+| `"%"` | Text in the inherited font |
+| `{ "text": "...", "font", "dy", "width", "align" }` | Text with its own settings (all optional except `text`) |
+| `{ "row": [...], "font", "dy", "width", "align" }` | A nested row |
+| `{ "space": 2 }` | Horizontal gap in pixels. May be negative to pull the next piece closer |
+| `{ "fill": true }` | Flexible gap that takes up the remaining width |
+
+Pieces are placed left to right, each taking its text width.
+
+- **Boxes:** with `width`, a piece takes exactly that many pixels and its contents are aligned inside the box by `align` (default left). This keeps changing values lined up, e.g. right-aligning a reading in a 24px box. Text wider than its box overflows the way it is aligned (right-aligned text extends to the left). `align` without `width` is an error.
+- **Fill:** in a row line (full display width) or a boxed nested row (its `width`), the space not used by other pieces is shared between its `fill`s. A row with a `fill` always uses the full width, so its `align` has no effect. In a nested row without `width`, a `fill` is zero.
+- **dy:** adds up, so a piece's `dy` is added to its row's and line's.
+
+#### Templates
+
+All text is a template: `{name}` is replaced with a value, `{{` and `}}` give literal braces, and anything else is shown as is.
+
+| Value | Description |
+|-------|-------------|
+| `{interface}` | Network interface name (e.g., "eth0.99") |
+| `{interface_phys}` | Interface name, or its prefix for a VLAN interface (e.g., "eth0", or "eth" for "eth0.99") |
+| `{interface_numvlan}` | Interface number and VLAN for a VLAN interface (e.g., "0.99" for "eth0.99"), otherwise empty |
+| `{ip}` | IP address (e.g., "192.168.0.1") |
+| `{ip_octet0}` - `{ip_octet3}` | Individual octets of the IP address |
+| `{cpu_usage}` | CPU usage percentage |
+| `{cpu_temp}` | CPU temperature in Celsius |
+| `{ram_usage}` | RAM usage percentage |
+| `{disk_usage}` | Disk usage percentage |
+| `{hostname}` | The machine's hostname, read at startup |
 
 Usage and temperature are shown with one decimal below 100 and without one from 100 up, so they stay four characters wide. A temperature that can't be read is shown as `--`.
 
@@ -243,56 +248,62 @@ The system supports multiple built-in fonts:
 - `PROFONT9`: ProFont 9-point
 - `PROFONT12`: ProFont 12-point
 
-#### Examples
+#### Example
 
-Display CPU usage with percentage sign:
+The shipped `portrait.json`:
 
 ```json
 {
-  "id": "cpu_usage",
-  "position": {
-    "x": {
-      "align": "right",
-      "anchor": 38
-    },
-    "y": 20
-  },
-  "components": [
-    {
-      "value": {
-        "text": "cpu_usage",
-        "font": "PCSENIOR8_STYLE"
-      }
-    }
-  ]
-},
-{
-  "id": "cpu_usage_units",
-  "position": {
-    "x": {
-      "align": "left",
-      "anchor": 40
-    },
-    "y": 20
-  },
-  "components": [
-    {
-      "value": {
-        "text": "%",
-        "font": "FONT_6X12"
-      },
-      "suffix": {
-        "text": "CPU",
-        "font": "FONT_5X8"
-      }
-    }
+  "orientation": "portrait",
+  "font": "FONT_6X12",
+  "lines": [
+    { "leading": 8, "font": "PCSENIOR8_STYLE", "lines": ["{interface_phys}", "{interface_numvlan}"] },
+    { "space": 2 },
+    { "leading": 8, "lines": [
+      { "row": [{ "space": 14 }, "{ip_octet0}"] },
+      { "row": [{ "space": 8 }, ".{ip_octet1}"] },
+      { "row": [{ "space": 8 }, ".{ip_octet2}"] },
+      { "row": [{ "space": 8 }, ".{ip_octet3}"] }
+    ] },
+    { "space": 4 },
+    { "leading": 9, "lines": [
+      { "text": "CPU", "font": "FONT_5X8", "align": "right" },
+      { "row": [{ "text": "{cpu_usage}", "width": 24, "align": "right" }, { "space": 2 }, "%"] },
+      { "row": [{ "text": "{cpu_temp}", "width": 24, "align": "right" },
+                { "text": "o", "font": "FONT_5X8", "dy": -4 }, { "space": -2 }, { "text": "C", "font": "FONT_5X8" }] }
+    ] },
+    { "space": 3 },
+    { "leading": 9, "lines": [
+      { "text": "RAM", "font": "FONT_5X8", "align": "right" },
+      { "row": [{ "text": "{ram_usage}", "width": 24, "align": "right" }, { "space": 2 }, "%"] }
+    ] },
+    { "space": 3 },
+    { "leading": 9, "lines": [
+      { "text": "DISK", "font": "FONT_5X8", "align": "right" },
+      { "row": [{ "text": "{disk_usage}", "width": 24, "align": "right" }, { "space": 2 }, "%"] }
+    ] }
   ]
 }
 ```
 
+- **Interface block:** the interface split over two lines, e.g. "eth" and "0.99", 8px apart.
+- **IP block:** one octet per line. The first is indented 14px and the others 8px plus a 6px ".", so the numbers line up.
+- **CPU, RAM and DISK blocks:** a right-aligned label, then each reading right-aligned in a 24px box followed by its unit, 9px apart, with `space` between blocks. The degree sign is a small raised "o" (`dy: -4`) pulled against the "C" with a negative `space`.
+
+`landscape.json` uses rows the same way: below a centred interface and IP line, each line is split into two 64px halves by putting the left reading in a nested row with `"width": 64`.
+
+#### Upgrading from the old format
+
+Earlier versions used a different format with `elements`, `position` and `components`. It is no longer read: a file with `elements` is rejected with an error pointing here, and the display shows "CONFIG ERROR". The shipped `portrait.json` and `landscape.json` have been converted; a custom layout needs to be rewritten in the format above.
+
 #### Checking a Configuration
 
-The configuration is checked when it is loaded. An unknown field, font or alignment, or a misspelled variable such as `cpu_tmep`, is an error rather than being ignored or shown as text. Lowercase text with an underscore is treated as a variable name, so it must be one of the variables above.
+The configuration is checked when it is loaded. These are errors rather than being ignored or drawn wrongly:
+
+- an unknown field, font or alignment, or a line or row piece of the wrong shape
+- an unknown value in a template, such as `{cpu_tmep}`, an empty `{}`, or an unmatched `{` or `}`
+- a character the font can't draw
+- a file in the old format
 
 If the file is missing or invalid, the error is logged and the display shows the hostname and "CONFIG ERROR". Fan control keeps running.
 
@@ -302,7 +313,7 @@ To check a file before restarting the service:
 rustberry-poe-monitor --check-config --config /etc/rustberry-poe-monitor/portrait.json
 ```
 
-It prints `OK` or the problem with its line and column, and exits with status 0 or 1.
+It prints `OK` or the problem and where it is (e.g. `lines[3].row[1]`), and exits with status 0 or 1. It also lays out each page with the widest values (e.g. `99.9`, `255.255.255.255`, `eth0.999`) and prints a warning for text that would run off the side, top or bottom of the screen. Warnings don't change the exit status. The hostname is not checked at its worst case, so a long hostname can still run off the screen.
 
 #### Previewing a Layout
 
@@ -312,7 +323,7 @@ To see a layout without waking the display or restarting the service, draw it to
 rustberry-poe-monitor --config /etc/rustberry-poe-monitor/portrait.json --render layout.png
 ```
 
-The image is the display as it is read, scaled up four times, using this machine's current readings. Add `--sample` to use fixed sample values instead, so two renders can be compared.
+The image is the display as it is read, scaled up four times, using this machine's current readings. Add `--sample` to use fixed sample values instead, so two renders can be compared. For a layout with several pages, add `--page N` to draw page N (starting at 1, the default).
 
 ## 🛠️ Building
 

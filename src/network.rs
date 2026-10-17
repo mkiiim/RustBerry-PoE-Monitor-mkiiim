@@ -146,6 +146,16 @@ fn sort_key(name: &str) -> (String, u32, Option<u32>) {
     }
 }
 
+/// This machine's hostname, or "RustBerry" if it can't be read.
+pub fn system_hostname() -> String {
+    match Command::new("hostname").output() {
+        Ok(output) if output.status.success() => {
+            String::from_utf8_lossy(&output.stdout).trim().to_string()
+        },
+        _ => "RustBerry".to_string(),
+    }
+}
+
 /// Splits an interface name into the two strings the layouts display.
 /// VLAN interfaces move the interface's last character to the second part
 /// ("eth0.99" -> ("eth", "0.99")); anything else is returned whole.

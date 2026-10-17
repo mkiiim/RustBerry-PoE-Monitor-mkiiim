@@ -3,11 +3,14 @@ mod default_config;
 mod fonts;
 mod layout;
 mod render;
+mod template;
+mod values;
 
 use std::fs::File;
 use std::io::{BufWriter, Write};
+use std::time::Instant;
 
-pub use layout::DisplayValues;
+pub use values::DisplayValues;
 
 use linux_embedded_hal::I2cdev;
 use ssd1306::{prelude::*, I2CDisplayInterface, Ssd1306, mode::BufferedGraphicsMode};
@@ -18,6 +21,7 @@ use log::{debug, error, info, warn};
 use config::DisplayConfig;
 use default_config::config_error_display_config;
 use layout::{layout, off_screen, TextRun};
+use render::check_layout;
 
 type Display = Ssd1306<I2CInterface<I2cdev>, DisplaySize128x32, BufferedGraphicsMode<DisplaySize128x32>>;
 
@@ -61,19 +65,24 @@ impl From<display_interface::DisplayError> for DisplayError {
 }
 
 /// Loads the config at `path` without touching the display, for `--check-config`.
-pub fn check_config(path: &str) -> Result<(), DisplayError> {
-    DisplayConfig::load(path).map(|_| ())
+/// Returns warnings about text that may not fit on the screen.
+pub fn check_config(path: &str) -> Result<Vec<String>, DisplayError> {
+    DisplayConfig::load(path).map(|config| check_layout(&config))
 }
 
 /// How many PNG pixels `--render` draws per display pixel.
 const RENDER_SCALE: u32 = 4;
 
-/// Draws the layout in `config_path` with `values` to a PNG at `out_path`,
-/// without touching the display, for `--render`.
-pub fn render_png(config_path: &str, values: &DisplayValues, out_path: &str) -> Result<(), Box<dyn std::error::Error>> {
+/// Draws page `page` (from 1) of the layout in `config_path` with `values`
+/// to a PNG at `out_path`, without touching the display, for `--render`.
+pub fn render_png(config_path: &str, page: usize, values: &DisplayValues, out_path: &str)
+                  -> Result<(), Box<dyn std::error::Error>> {
     let config = DisplayConfig::load(config_path)?;
+    let count = config.pages.len();
+    let page = page.checked_sub(1).and_then(|i| config.pages.get(i))
+        .ok_or_else(|| format!("no page {}, the config has {} page{}", page, count, if count == 1 { "" } else { "s" }))?;
     let mut out = BufWriter::new(File::create(out_path)?);
-    render::render(&config, values).write_png(&mut out, RENDER_SCALE)?;
+    render::render(&config.orientation, page, values).write_png(&mut out, RENDER_SCALE)?;
     out.flush()?;
     Ok(())
 }
@@ -89,6 +98,8 @@ fn draw_runs<D: DrawTarget<Color = BinaryColor>>(target: &mut D, runs: &[TextRun
 pub struct PoeDisplay {
     display: Display,
     config: DisplayConfig,
+    /// When the display was set up; pages turn over counting from here
+    started: Instant,
     overflow_warned: bool,
 }
 
@@ -105,12 +116,12 @@ impl PoeDisplay {
             },
             Err(e) => {
                 error!("Failed to load config from {}: {}", config_path, e);
-                config_error_display_config()
+                config_error_display_config()?
             }
         };
 
-        debug!("Config details: orientation={:?}, width={}, height={}, elements={}",
-               config.orientation, config.width, config.height, config.elements.len());
+        debug!("Config details: orientation={:?}, pages={}, page_seconds={}",
+               config.orientation, config.pages.len(), config.page_seconds);
 
         let i2c = I2cdev::new("/dev/i2c-1").map_err(|e| {
             error!("Failed to initialize I2C device: {}", e);
@@ -120,7 +131,7 @@ impl PoeDisplay {
         let display = initialize_display(i2c, &config)?;
         info!("Display initialized successfully");
 
-        Ok(PoeDisplay { display, config, overflow_warned: false })
+        Ok(PoeDisplay { display, config, started: Instant::now(), overflow_warned: false })
     }
 
     /// Blanks the screen and switches the panel off. The fan and everything
@@ -138,13 +149,14 @@ impl PoeDisplay {
         Ok(())
     }
 
-    /// Redraws the whole screen with `values`.
+    /// Redraws the whole screen with `values`, on the page due now.
     pub fn update_display(&mut self, values: &DisplayValues) -> Result<(), DisplayError> {
         self.display.clear(BinaryColor::Off)?;
-        let runs = layout(&self.config, values);
+        let (width, _) = self.config.orientation.size();
+        let runs = layout(self.config.page_at(self.started.elapsed()), width, values);
         if !self.overflow_warned {
-            if let Some(run) = off_screen(&runs, self.config.width) {
-                warn!("\"{}\" doesn't fit on the {}px wide display", run.text, self.config.width);
+            if let Some(run) = off_screen(&runs, width) {
+                warn!("\"{}\" doesn't fit on the {}px wide display", run.text, width);
                 self.overflow_warned = true;
             }
         }
